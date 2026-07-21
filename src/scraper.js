@@ -12,6 +12,50 @@ const BROWSER_HEADERS = {
     'Sec-Ch-Ua-Platform': '"Windows"'
 };
 
+const seasonCache = {};
+
+async function resolveSeasonId(league, requestedYear) {
+    const isSoccerdonna = league.source === 'soccerdonna';
+    const baseUrl = isSoccerdonna ? (league.baseUrl || 'https://www.soccerdonna.de/de') : config.baseUrl;
+    const compName = league.compName;
+    const compCode = league.compCode;
+    const compType = league.compType || 'wettbewerb';
+
+    const cacheKey = `${league.fileName}_${requestedYear}`;
+    if (seasonCache[cacheKey]) return seasonCache[cacheKey];
+
+    const yearInt = parseInt(requestedYear) || 2026;
+    const candidateYears = [yearInt, yearInt - 1, yearInt - 2];
+
+    for (const yr of candidateYears) {
+        let url = isSoccerdonna
+            ? `${baseUrl}/${compName}/spieltagsuebersicht/wettbewerb_${compCode}_${yr}_1.html`
+            : `${baseUrl}/${compName}/spieltag/${compType}/${compCode}/plus/?saison_id=${yr}&spieltag=1`;
+
+        try {
+            const resp = await fetch(url, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept-Language': isSoccerdonna ? 'de-DE,de;q=0.9' : 'en-GB,en;q=0.9'
+                }
+            });
+            if (resp.ok) {
+                const html = await resp.text();
+                const $ = cheerio.load(html);
+                const tableCount = isSoccerdonna ? $('table.tabelle_grafik').length : $('.box tr.table-grosse-schrift').length;
+                if (tableCount > 0) {
+                    seasonCache[cacheKey] = yr.toString();
+                    return yr.toString();
+                }
+            }
+        } catch (e) {}
+    }
+
+    const fallback = (yearInt - 1).toString();
+    seasonCache[cacheKey] = fallback;
+    return fallback;
+}
+
 function deduplicateMatchday(matches) {
     if (!matches || matches.length <= 1) return matches;
 
@@ -36,21 +80,16 @@ function deduplicateMatchday(matches) {
     return cleanMatches;
 }
 
-async function scrapeTransfermarktHTTP(league, matchday, targetYear) {
+async function scrapeTransfermarktHTTP(league, matchday, lockedSeasonId) {
     const compName = league.compName;
     const compCode = league.compCode;
     const compType = league.compType || 'wettbewerb';
     const baseUrl = config.baseUrl;
 
-    const urlsToTry = [];
-    if (targetYear) {
-        const yearInt = parseInt(targetYear) || 2026;
-        urlsToTry.push(`${baseUrl}/${compName}/spieltag/${compType}/${compCode}/plus/?saison_id=${yearInt}&spieltag=${matchday}`);
-        urlsToTry.push(`${baseUrl}/${compName}/spieltag/${compType}/${compCode}/plus/?saison_id=${yearInt - 1}&spieltag=${matchday}`);
-        urlsToTry.push(`${baseUrl}/${compName}/spieltag/${compType}/${compCode}/plus/?saison_id=${yearInt - 2}&spieltag=${matchday}`);
-        urlsToTry.push(`${baseUrl}/${compName}/spieltag/${compType}/${compCode}/plus/?saison_id=${yearInt + 1}&spieltag=${matchday}`);
-    }
-    urlsToTry.push(`${baseUrl}/${compName}/spieltag/${compType}/${compCode}/plus/?spieltag=${matchday}`);
+    const urlsToTry = [
+        `${baseUrl}/${compName}/spieltag/${compType}/${compCode}/plus/?saison_id=${lockedSeasonId}&spieltag=${matchday}`,
+        `${baseUrl}/${compName}/spieltag/${compType}/${compCode}/plus/?spieltag=${matchday}`
+    ];
 
     for (const url of urlsToTry) {
         try {
@@ -125,20 +164,15 @@ async function scrapeTransfermarktHTTP(league, matchday, targetYear) {
     return [];
 }
 
-async function scrapeSoccerdonnaHTTP(league, matchday, targetYear) {
+async function scrapeSoccerdonnaHTTP(league, matchday, lockedSeasonId) {
     const compName = league.compName;
     const compCode = league.compCode;
     const baseUrl = league.baseUrl || 'https://www.soccerdonna.de/de';
 
-    const urlsToTry = [];
-    if (targetYear) {
-        const yearInt = parseInt(targetYear) || 2026;
-        urlsToTry.push(`${baseUrl}/${compName}/spieltagsuebersicht/wettbewerb_${compCode}_${yearInt}_${matchday}.html`);
-        urlsToTry.push(`${baseUrl}/${compName}/spieltagsuebersicht/wettbewerb_${compCode}_${yearInt - 1}_${matchday}.html`);
-        urlsToTry.push(`${baseUrl}/${compName}/spieltagsuebersicht/wettbewerb_${compCode}_${yearInt - 2}_${matchday}.html`);
-        urlsToTry.push(`${baseUrl}/${compName}/spieltagsuebersicht/wettbewerb_${compCode}_${yearInt + 1}_${matchday}.html`);
-    }
-    urlsToTry.push(`${baseUrl}/${compName}/spieltagsuebersicht/wettbewerb_${compCode}_${matchday}.html`);
+    const urlsToTry = [
+        `${baseUrl}/${compName}/spieltagsuebersicht/wettbewerb_${compCode}_${lockedSeasonId}_${matchday}.html`,
+        `${baseUrl}/${compName}/spieltagsuebersicht/wettbewerb_${compCode}_${matchday}.html`
+    ];
 
     for (const url of urlsToTry) {
         try {
@@ -268,10 +302,12 @@ async function scrapeMatchday(leagueKey, matchday, customYear) {
     const targetYear = customYear || league.year || '2026';
     const isSoccerdonna = league.source === 'soccerdonna';
 
-    // Standalone, ultra-fast HTTP Cheerio scraper with multi-year fallbacks (100% cloud & Vercel compatible)
+    // Lock Season ID across the entire extraction task so years are NEVER mixed
+    const lockedSeasonId = await resolveSeasonId(league, targetYear);
+
     const rawResults = isSoccerdonna
-        ? await scrapeSoccerdonnaHTTP(league, matchday, targetYear)
-        : await scrapeTransfermarktHTTP(league, matchday, targetYear);
+        ? await scrapeSoccerdonnaHTTP(league, matchday, lockedSeasonId)
+        : await scrapeTransfermarktHTTP(league, matchday, lockedSeasonId);
 
     if (rawResults && rawResults.length > 0) {
         // Enforce strict matchday deduplication rule: a team cannot play twice in the same matchday
@@ -282,4 +318,4 @@ async function scrapeMatchday(leagueKey, matchday, customYear) {
     throw new Error(`No match data found for ${league.fileName || leagueKey} Matchday ${matchday} (Año ${targetYear}).`);
 }
 
-module.exports = { scrapeMatchday };
+module.exports = { scrapeMatchday, resolveSeasonId };
