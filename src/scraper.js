@@ -1,6 +1,17 @@
 const cheerio = require('cheerio');
 const config = require('./config');
 
+const BROWSER_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8,de;q=0.7',
+    'Cache-Control': 'no-cache',
+    'Pragma': 'no-cache',
+    'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+    'Sec-Ch-Ua-Mobile': '?0',
+    'Sec-Ch-Ua-Platform': '"Windows"'
+};
+
 async function scrapeTransfermarktHTTP(league, matchday, targetYear) {
     const compName = league.compName;
     const compCode = league.compCode;
@@ -9,9 +20,11 @@ async function scrapeTransfermarktHTTP(league, matchday, targetYear) {
 
     const urlsToTry = [];
     if (targetYear) {
-        urlsToTry.push(`${baseUrl}/${compName}/spieltag/${compType}/${compCode}/plus/?saison_id=${targetYear}&spieltag=${matchday}`);
-        const fallbackYear = (parseInt(targetYear) - 1).toString();
-        urlsToTry.push(`${baseUrl}/${compName}/spieltag/${compType}/${compCode}/plus/?saison_id=${fallbackYear}&spieltag=${matchday}`);
+        const yearInt = parseInt(targetYear) || 2026;
+        urlsToTry.push(`${baseUrl}/${compName}/spieltag/${compType}/${compCode}/plus/?saison_id=${yearInt}&spieltag=${matchday}`);
+        urlsToTry.push(`${baseUrl}/${compName}/spieltag/${compType}/${compCode}/plus/?saison_id=${yearInt - 1}&spieltag=${matchday}`);
+        urlsToTry.push(`${baseUrl}/${compName}/spieltag/${compType}/${compCode}/plus/?saison_id=${yearInt - 2}&spieltag=${matchday}`);
+        urlsToTry.push(`${baseUrl}/${compName}/spieltag/${compType}/${compCode}/plus/?saison_id=${yearInt + 1}&spieltag=${matchday}`);
     }
     urlsToTry.push(`${baseUrl}/${compName}/spieltag/${compType}/${compCode}/plus/?spieltag=${matchday}`);
 
@@ -19,10 +32,9 @@ async function scrapeTransfermarktHTTP(league, matchday, targetYear) {
         try {
             console.log(`[HTTP Scraper] Navigating to: ${url}`);
             const resp = await fetch(url, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-                    'Accept-Language': 'en-GB,en;q=0.9'
-                }
+                redirect: 'follow',
+                signal: AbortSignal.timeout(8000),
+                headers: BROWSER_HEADERS
             });
 
             if (!resp.ok) continue;
@@ -96,9 +108,11 @@ async function scrapeSoccerdonnaHTTP(league, matchday, targetYear) {
 
     const urlsToTry = [];
     if (targetYear) {
-        urlsToTry.push(`${baseUrl}/${compName}/spieltagsuebersicht/wettbewerb_${compCode}_${targetYear}_${matchday}.html`);
-        const fallbackYear = (parseInt(targetYear) - 1).toString();
-        urlsToTry.push(`${baseUrl}/${compName}/spieltagsuebersicht/wettbewerb_${compCode}_${fallbackYear}_${matchday}.html`);
+        const yearInt = parseInt(targetYear) || 2026;
+        urlsToTry.push(`${baseUrl}/${compName}/spieltagsuebersicht/wettbewerb_${compCode}_${yearInt}_${matchday}.html`);
+        urlsToTry.push(`${baseUrl}/${compName}/spieltagsuebersicht/wettbewerb_${compCode}_${yearInt - 1}_${matchday}.html`);
+        urlsToTry.push(`${baseUrl}/${compName}/spieltagsuebersicht/wettbewerb_${compCode}_${yearInt - 2}_${matchday}.html`);
+        urlsToTry.push(`${baseUrl}/${compName}/spieltagsuebersicht/wettbewerb_${compCode}_${yearInt + 1}_${matchday}.html`);
     }
     urlsToTry.push(`${baseUrl}/${compName}/spieltagsuebersicht/wettbewerb_${compCode}_${matchday}.html`);
 
@@ -106,10 +120,9 @@ async function scrapeSoccerdonnaHTTP(league, matchday, targetYear) {
         try {
             console.log(`[HTTP Scraper] Navigating to: ${url}`);
             const resp = await fetch(url, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-                    'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7'
-                }
+                redirect: 'follow',
+                signal: AbortSignal.timeout(8000),
+                headers: BROWSER_HEADERS
             });
 
             if (!resp.ok) continue;
@@ -184,9 +197,10 @@ async function scrapeSoccerdonnaHTTP(league, matchday, targetYear) {
                     reportPromises.push((async () => {
                         try {
                             const repResp = await fetch(reportUrl, {
-                                signal: AbortSignal.timeout(1500),
+                                redirect: 'follow',
+                                signal: AbortSignal.timeout(2000),
                                 headers: {
-                                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+                                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                                     'Accept-Language': 'de-DE,de;q=0.9'
                                 }
                             });
@@ -227,10 +241,10 @@ async function scrapeMatchday(leagueKey, matchday, customYear) {
     const league = config.leagues[leagueKey];
     if (!league) throw new Error(`League ${leagueKey} not found in configuration.`);
 
-    const targetYear = customYear || league.year || '2025';
+    const targetYear = customYear || league.year || '2026';
     const isSoccerdonna = league.source === 'soccerdonna';
 
-    // Standalone, ultra-fast HTTP Cheerio scraper (100% cloud & Vercel compatible)
+    // Standalone, ultra-fast HTTP Cheerio scraper with multi-year fallbacks (100% cloud & Vercel compatible)
     const results = isSoccerdonna
         ? await scrapeSoccerdonnaHTTP(league, matchday, targetYear)
         : await scrapeTransfermarktHTTP(league, matchday, targetYear);
