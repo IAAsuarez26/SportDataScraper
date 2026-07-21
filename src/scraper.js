@@ -1,5 +1,6 @@
 const cheerio = require('cheerio');
 const config = require('./config');
+const { fetchEspnMatchday } = require('./espnScraper');
 
 const BROWSER_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -20,7 +21,6 @@ function filterMatchesByYear(matches, targetYear) {
     if (isNaN(reqYear)) return matches;
 
     return matches.filter(m => {
-        // STRICT RULE: Every match MUST have a valid date whose year explicitly equals targetYear.
         if (!m.date || typeof m.date !== 'string') return false;
         const parts = m.date.split('/');
         if (parts.length < 3) return false;
@@ -34,12 +34,9 @@ function filterMatchesByYear(matches, targetYear) {
 function deduplicateMatchday(matches) {
     if (!matches || matches.length <= 1) return matches;
 
-    // Rule: In any official league matchday, a team CANNOT play twice.
-    // Filter out duplicate team appearances so each team plays at most once per matchday.
     const seenTeams = new Set();
     const cleanMatches = [];
 
-    // Iterate backwards (from main round to earlier rescheduled games)
     for (let i = matches.length - 1; i >= 0; i--) {
         const m = matches[i];
         if (seenTeams.has(m.homeTeam) || seenTeams.has(m.awayTeam)) {
@@ -139,8 +136,6 @@ async function scrapeTransfermarktHTTP(league, matchday, targetYear) {
                 if (validResults.length > 0) {
                     console.log(`[HTTP Scraper] Successfully extracted ${validResults.length} matches strictly matching target year ${targetYear}.`);
                     return validResults;
-                } else {
-                    console.warn(`[HTTP Scraper] Discarded ${results.length} matches from ${url} because their dates do not match requested year ${targetYear}.`);
                 }
             }
         } catch (err) {
@@ -213,13 +208,11 @@ async function scrapeSoccerdonnaHTTP(league, matchday, targetYear) {
                 let matchDate = '';
                 let matchTime = '';
 
-                // Extract exact dd.mm.yyyy date
                 const dateMatch = text.match(/(\d{2}\.\d{2}\.\d{4})/);
                 if (dateMatch) {
                     matchDate = dateMatch[1].replace(/\./g, '/');
                 }
 
-                // Extract exact hh:mm time
                 const timeMatch = text.match(/(\d{1,2}:\d{2})/);
                 if (timeMatch) {
                     matchTime = timeMatch[1];
@@ -241,8 +234,6 @@ async function scrapeSoccerdonnaHTTP(league, matchday, targetYear) {
                 if (validResults.length > 0) {
                     console.log(`[HTTP Scraper] Successfully extracted ${validResults.length} matches strictly matching target year ${targetYear}.`);
                     return validResults;
-                } else {
-                    console.warn(`[HTTP Scraper] Discarded ${results.length} matches from ${url} because their dates do not match requested year ${targetYear}.`);
                 }
             }
         } catch (err) {
@@ -258,14 +249,24 @@ async function scrapeMatchday(leagueKey, matchday, customYear) {
     if (!league) throw new Error(`League ${leagueKey} not found in configuration.`);
 
     const targetYear = customYear || league.year || '2026';
-    const isSoccerdonna = league.source === 'soccerdonna';
 
+    // PRIMARY ENGINE: Official ESPN JSON API Endpoint
+    try {
+        const espnResults = await fetchEspnMatchday(leagueKey, matchday, targetYear);
+        if (espnResults && espnResults.length > 0) {
+            return deduplicateMatchday(espnResults);
+        }
+    } catch (e) {
+        console.warn(`[Engine Switch] ESPN Engine fallback to Cheerio HTTP: ${e.message}`);
+    }
+
+    // FALLBACK ENGINE: Cheerio HTTP Scraper
+    const isSoccerdonna = league.source === 'soccerdonna';
     const rawResults = isSoccerdonna
         ? await scrapeSoccerdonnaHTTP(league, matchday, targetYear)
         : await scrapeTransfermarktHTTP(league, matchday, targetYear);
 
     if (rawResults && rawResults.length > 0) {
-        // Enforce strict matchday deduplication rule: a team cannot play twice in the same matchday
         const cleanResults = deduplicateMatchday(rawResults);
         return cleanResults;
     }
