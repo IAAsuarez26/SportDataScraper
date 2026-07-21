@@ -46,15 +46,26 @@ function renderLeaguesGrid(leagues) {
     const grid = document.getElementById('leagues-grid');
     grid.innerHTML = '';
 
+    const currentYear = new Date().getFullYear();
+
     leagues.forEach(league => {
         const card = document.createElement('div');
         card.className = 'league-card';
         card.style.setProperty('--card-accent', league.accent);
 
+        const yearVal = league.year || currentYear;
+        const ratio = league.matchdaysRatio || `${league.completedMatchdays || 0}/${league.maxMatchdays}`;
+        const defaultStart = league.defaultStart || 1;
+
         card.innerHTML = `
             <div class="card-top">
                 <span class="card-flag">${league.flag}</span>
-                <span class="card-source ${league.source}">${league.source}</span>
+                <div class="card-badges">
+                    <span class="card-progress-badge" title="Jornadas finalizadas / Totales">
+                        <i class="fa-solid fa-flag-checkered"></i> ${ratio}
+                    </span>
+                    <span class="card-source ${league.source}">${league.source}</span>
+                </div>
             </div>
             
             <div>
@@ -65,15 +76,15 @@ function renderLeaguesGrid(leagues) {
             <div class="card-inputs">
                 <div class="input-group">
                     <label>Año / Temporada</label>
-                    <input type="number" id="year-${league.key}" value="${league.year || 2025}" min="2000" max="2030">
+                    <input type="number" id="year-${league.key}" value="${yearVal}" min="2000" max="2030">
                 </div>
                 <div class="input-group">
                     <label>Desde Jornada</label>
-                    <input type="number" id="start-${league.key}" value="${league.defaultStart}" min="1" max="${league.maxMatchdays}">
+                    <input type="number" id="start-${league.key}" value="${defaultStart}" min="1" max="${league.maxMatchdays}">
                 </div>
                 <div class="input-group">
                     <label>Hasta Jornada</label>
-                    <input type="number" id="end-${league.key}" value="${league.defaultEnd}" min="1" max="${league.maxMatchdays}">
+                    <input type="number" id="end-${league.key}" value="${league.defaultEnd || league.maxMatchdays}" min="1" max="${league.maxMatchdays}">
                 </div>
             </div>
 

@@ -198,28 +198,98 @@ async function runExtractionTask(leagueKey, startMatchday, endMatchday, customYe
     }
 }
 
+const cheerio = require('cheerio');
+const liveStatusCache = {};
+
+async function fetchLeagueLiveStatus(leagueKey) {
+    if (liveStatusCache[leagueKey] && (Date.now() - liveStatusCache[leagueKey].timestamp < 1800000)) {
+        return liveStatusCache[leagueKey].data;
+    }
+
+    const league = config.leagues[leagueKey];
+    if (!league) return { completed: 0, total: 34 };
+
+    const isSoccerdonna = league.source === 'soccerdonna';
+    const baseUrl = isSoccerdonna ? (league.baseUrl || 'https://www.soccerdonna.de/de') : config.baseUrl;
+    const compType = league.compType || 'wettbewerb';
+
+    const url = isSoccerdonna
+        ? `${baseUrl}/${league.compName}/spieltagsuebersicht/wettbewerb_${league.compCode}.html`
+        : `${baseUrl}/${league.compName}/spieltag/${compType}/${league.compCode}`;
+
+    try {
+        const resp = await fetch(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+                'Accept-Language': isSoccerdonna ? 'de-DE,de;q=0.9' : 'en-GB,en;q=0.9'
+            }
+        });
+
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const html = await resp.text();
+        const $ = cheerio.load(html);
+
+        const selectOptions = $('select[name="spieltag"] option').toArray();
+        const total = selectOptions.length || 34;
+
+        let completed = 0;
+
+        const selectedOption = $('select[name="spieltag"] option[selected]');
+        if (selectedOption.length > 0) {
+            const m = selectedOption.text().match(/(\d+)/);
+            if (m) completed = parseInt(m[1]);
+        }
+
+        if (!completed && selectOptions.length > 0) {
+            const firstOpt = $(selectOptions[0]).text();
+            const m = firstOpt.match(/(\d+)/);
+            if (m) completed = parseInt(m[1]);
+        }
+
+        const data = { completed: completed || 0, total };
+        liveStatusCache[leagueKey] = { timestamp: Date.now(), data };
+        return data;
+    } catch (e) {
+        return { completed: 0, total: 34 };
+    }
+}
+
 // API Routes
 
 // GET /api/leagues - List available leagues with metadata
-app.get('/api/leagues', (req, res) => {
-    const list = Object.keys(config.leagues).map(key => {
+app.get('/api/leagues', async (req, res) => {
+    const currentYear = new Date().getFullYear(); // 2026
+
+    const list = await Promise.all(Object.keys(config.leagues).map(async key => {
         const league = config.leagues[key];
         const meta = LEAGUE_METADATA[key] || {};
+        
+        let completed = meta.defaultCompleted || 0;
+        try {
+            const status = await fetchLeagueLiveStatus(key);
+            completed = status.completed || completed;
+        } catch (e) {}
+
+        const maxMatchdays = meta.maxMatchdays || 34;
+        const nextMatchday = completed > 0 ? Math.min(completed + 1, maxMatchdays) : (meta.defaultStart || 1);
+
         return {
             key,
             compName: league.compName,
             fileName: league.fileName,
-            year: league.year,
-            source: league.source || 'transfermarkt',
             name: meta.name || league.fileName,
             country: meta.country || '',
             flag: meta.flag || '⚽',
             accent: meta.accent || '#10B981',
-            defaultStart: meta.defaultStart || 1,
-            defaultEnd: meta.defaultEnd || 34,
-            maxMatchdays: meta.maxMatchdays || 38
+            source: league.source || 'transfermarkt',
+            year: currentYear,
+            completedMatchdays: completed,
+            maxMatchdays,
+            matchdaysRatio: `${completed}/${maxMatchdays}`,
+            defaultStart: nextMatchday,
+            defaultEnd: maxMatchdays
         };
-    });
+    }));
     res.json(list);
 });
 
