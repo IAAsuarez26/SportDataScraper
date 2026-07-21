@@ -1,7 +1,7 @@
-const { scrapeHybridMatchday } = require('./hybridScraper');
+const { scrapePureEspnMatchday } = require('./pureEspnScraper');
 
 async function scrapeMatchday(leagueKey, matchday, customYear) {
-    return await scrapeHybridMatchday(leagueKey, matchday, customYear);
+    return await scrapePureEspnMatchday(leagueKey, matchday, customYear);
 }
 
 module.exports = { scrapeMatchday };
