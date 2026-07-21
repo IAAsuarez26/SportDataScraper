@@ -12,6 +12,30 @@ const BROWSER_HEADERS = {
     'Sec-Ch-Ua-Platform': '"Windows"'
 };
 
+function deduplicateMatchday(matches) {
+    if (!matches || matches.length <= 1) return matches;
+
+    // Rule: In any official league matchday, a team CANNOT play twice.
+    // If a portal includes mid-week catch-up/rescheduled games alongside main matchday fixtures,
+    // filter out duplicate team appearances so each team plays at most once per matchday.
+    const seenTeams = new Set();
+    const cleanMatches = [];
+
+    // Iterate backwards (from main round to earlier rescheduled games)
+    for (let i = matches.length - 1; i >= 0; i--) {
+        const m = matches[i];
+        if (seenTeams.has(m.homeTeam) || seenTeams.has(m.awayTeam)) {
+            console.log(`[Deduplicator] Skipping duplicate matchday fixture: ${m.homeTeam} vs ${m.awayTeam} (Date: ${m.date})`);
+            continue;
+        }
+        seenTeams.add(m.homeTeam);
+        seenTeams.add(m.awayTeam);
+        cleanMatches.unshift(m);
+    }
+
+    return cleanMatches;
+}
+
 async function scrapeTransfermarktHTTP(league, matchday, targetYear) {
     const compName = league.compName;
     const compCode = league.compCode;
@@ -245,12 +269,14 @@ async function scrapeMatchday(leagueKey, matchday, customYear) {
     const isSoccerdonna = league.source === 'soccerdonna';
 
     // Standalone, ultra-fast HTTP Cheerio scraper with multi-year fallbacks (100% cloud & Vercel compatible)
-    const results = isSoccerdonna
+    const rawResults = isSoccerdonna
         ? await scrapeSoccerdonnaHTTP(league, matchday, targetYear)
         : await scrapeTransfermarktHTTP(league, matchday, targetYear);
 
-    if (results && results.length > 0) {
-        return results;
+    if (rawResults && rawResults.length > 0) {
+        // Enforce strict matchday deduplication rule: a team cannot play twice in the same matchday
+        const cleanResults = deduplicateMatchday(rawResults);
+        return cleanResults;
     }
 
     throw new Error(`No match data found for ${league.fileName || leagueKey} Matchday ${matchday} (Año ${targetYear}).`);
