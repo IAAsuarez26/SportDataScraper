@@ -20,13 +20,14 @@ function filterMatchesByYear(matches, targetYear) {
     if (isNaN(reqYear)) return matches;
 
     return matches.filter(m => {
-        if (!m.date) return true; // Keep matches without dates if future/unscheduled
+        // STRICT RULE: Every match MUST have a valid date whose year explicitly equals targetYear.
+        // Discard any match with empty date or date belonging to a different year!
+        if (!m.date || typeof m.date !== 'string') return false;
         const parts = m.date.split('/');
-        if (parts.length < 3) return true;
+        if (parts.length < 3) return false;
         const matchYear = parseInt(parts[2]);
-        if (isNaN(matchYear)) return true;
+        if (isNaN(matchYear)) return false;
 
-        // Strict Year Filter: Match year MUST match requested targetYear
         return matchYear === reqYear;
     });
 }
@@ -35,8 +36,7 @@ function deduplicateMatchday(matches) {
     if (!matches || matches.length <= 1) return matches;
 
     // Rule: In any official league matchday, a team CANNOT play twice.
-    // If a portal includes mid-week catch-up/rescheduled games alongside main matchday fixtures,
-    // filter out duplicate team appearances so each team plays at most once per matchday.
+    // Filter out duplicate team appearances so each team plays at most once per matchday.
     const seenTeams = new Set();
     const cleanMatches = [];
 
@@ -135,7 +135,7 @@ async function scrapeTransfermarktHTTP(league, matchday, targetYear) {
             if (results.length > 0) {
                 const validResults = filterMatchesByYear(results, targetYear);
                 if (validResults.length > 0) {
-                    console.log(`[HTTP Scraper] Successfully extracted ${validResults.length} matches matching target year ${targetYear}.`);
+                    console.log(`[HTTP Scraper] Successfully extracted ${validResults.length} matches strictly matching target year ${targetYear}.`);
                     return validResults;
                 } else {
                     console.warn(`[HTTP Scraper] Discarded ${results.length} matches from ${url} because their dates do not match requested year ${targetYear}.`);
@@ -276,7 +276,7 @@ async function scrapeSoccerdonnaHTTP(league, matchday, targetYear) {
             if (results.length > 0) {
                 const validResults = filterMatchesByYear(results, targetYear);
                 if (validResults.length > 0) {
-                    console.log(`[HTTP Scraper] Successfully extracted ${validResults.length} matches matching target year ${targetYear}.`);
+                    console.log(`[HTTP Scraper] Successfully extracted ${validResults.length} matches strictly matching target year ${targetYear}.`);
                     return validResults;
                 } else {
                     console.warn(`[HTTP Scraper] Discarded ${results.length} matches from ${url} because their dates do not match requested year ${targetYear}.`);
