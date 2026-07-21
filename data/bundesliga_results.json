@@ -1,0 +1,81 @@
+[
+  {
+    "jornada": 19,
+    "fecha_inicio": "2026-01-23",
+    "fecha_fin": "2026-01-25",
+    "partidos": [
+      {
+        "local": "FC St. Pauli",
+        "visitante": "Hamburger SV",
+        "goles_local": 0,
+        "goles_visitante": 0,
+        "estadio": "Millerntor-Stadion",
+        "asistencia": 29546
+      },
+      {
+        "local": "Bayer Leverkusen",
+        "visitante": "SV Werder Bremen",
+        "goles_local": 1,
+        "goles_visitante": 0,
+        "estadio": "BayArena",
+        "asistencia": 30210
+      },
+      {
+        "local": "FC Bayern München",
+        "visitante": "FC Augsburg",
+        "goles_local": 1,
+        "goles_visitante": 2,
+        "estadio": "Allianz Arena",
+        "asistencia": 75000
+      },
+      {
+        "local": "Eintracht Frankfurt",
+        "visitante": "TSG Hoffenheim",
+        "goles_local": 1,
+        "goles_visitante": 3,
+        "estadio": "Deutsche Bank Park",
+        "asistencia": 58500
+      },
+      {
+        "local": "1. FC Heidenheim",
+        "visitante": "RB Leipzig",
+        "goles_local": 0,
+        "goles_visitante": 3,
+        "estadio": "Voith-Arena",
+        "asistencia": 14000
+      },
+      {
+        "local": "1. FSV Mainz 05",
+        "visitante": "VfL Wolfsburg",
+        "goles_local": 3,
+        "goles_visitante": 1,
+        "estadio": "MEWA ARENA",
+        "asistencia": 30000
+      },
+      {
+        "local": "1. FC Union Berlin",
+        "visitante": "Borussia Dortmund",
+        "goles_local": 0,
+        "goles_visitante": 3,
+        "estadio": "Stadion An der Alten Försterei",
+        "asistencia": 22012
+      },
+      {
+        "local": "B. Mönchengladbach",
+        "visitante": "VfB Stuttgart",
+        "goles_local": 0,
+        "goles_visitante": 3,
+        "estadio": "BORUSSIA-PARK",
+        "asistencia": 51050
+      },
+      {
+        "local": "SC Freiburg",
+        "visitante": "1. FC Köln",
+        "goles_local": 2,
+        "goles_visitante": 1,
+        "estadio": "Europa-Park Stadion",
+        "asistencia": 34700
+      }
+    ]
+  }
+]

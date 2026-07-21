@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sports Data Scraper Hub | Extractor de Datos Deportivos</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Top Header Navigation -->
+        <header class="app-header">
+            <div class="logo-group">
+                <div class="logo-icon">
+                    <i class="fa-solid fa-bolt-lightning"></i>
+                </div>
+                <div>
+                    <h1 class="logo-title">SPORTS DATA <span>SCRAPER</span></h1>
+                    <p class="logo-subtitle">Extractor Automatizado • Transfermarkt & Soccerdonna</p>
+                </div>
+            </div>
+
+            <div class="header-status">
+                <div class="status-pill" id="system-status-pill">
+                    <span class="pulse-dot"></span>
+                    <span id="status-text">Listo para extraer</span>
+                </div>
+                <div class="timezone-badge">
+                    <i class="fa-solid fa-clock"></i>
+                    <span>Hora Caracas (GMT-4)</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Workspace -->
+        <main class="main-content">
+            <!-- Hero / Quick Batch Extractor Banner -->
+            <section class="batch-banner">
+                <div class="banner-info">
+                    <span class="badge-usa"><i class="fa-solid fa-flag-usa"></i> Novedad EE. UU.</span>
+                    <h2>Extracción de MLS & NWSL Lista</h2>
+                    <p>Selecciona cualquier liga o ejecuta extracciones múltiples por rango de jornadas con exportación a Excel.</p>
+                </div>
+                <div class="banner-actions">
+                    <button class="btn btn-emerald" id="btn-batch-usa">
+                        <i class="fa-solid fa-play"></i> Extraer EE. UU. (MLS + NWSL)
+                    </button>
+                    <button class="btn btn-secondary" id="btn-refresh-all">
+                        <i class="fa-solid fa-rotate"></i> Actualizar Todo
+                    </button>
+                </div>
+            </section>
+
+            <!-- Leagues Selection Grid -->
+            <section class="section-container">
+                <div class="section-header">
+                    <h3><i class="fa-solid fa-trophy"></i> Ligas & Competiciones Disponibles</h3>
+                    <span class="section-count" id="leagues-count">8 ligas configuradas</span>
+                </div>
+
+                <div class="leagues-grid" id="leagues-grid">
+                    <!-- Dynamic League Cards rendered via JS -->
+                    <div class="loading-state">
+                        <i class="fa-solid fa-circle-notch fa-spin"></i> Cargando ligas...
+                    </div>
+                </div>
+            </section>
+
+            <!-- Execution Console & Live Terminal -->
+            <section class="section-container" id="terminal-section">
+                <div class="section-header">
+                    <h3><i class="fa-solid fa-terminal"></i> Terminal de Ejecución en Vivo</h3>
+                    <div class="terminal-controls">
+                        <button class="btn-sm btn-outline-danger" id="btn-stop-extraction" disabled>
+                            <i class="fa-solid fa-square"></i> Detener Extracción
+                        </button>
+                        <button class="btn-sm btn-icon" id="btn-clear-logs" title="Limpiar Consola">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="progress-bar-container">
+                    <div class="progress-bar-fill" id="progress-bar" style="width: 0%;"></div>
+                    <span class="progress-text" id="progress-percentage">0%</span>
+                </div>
+
+                <div class="terminal-window" id="terminal-window">
+                    <div class="log-line info">
+                        <span class="log-time">[SISTEMA]</span>
+                        <span class="log-msg">Bienvenido al Extractor de Datos Deportivos. Elige una liga para comenzar la extracción.</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Downloadable Excel Files Table -->
+            <section class="section-container">
+                <div class="section-header">
+                    <h3><i class="fa-solid fa-file-excel"></i> Archivos Excel Generados</h3>
+                    <button class="btn-sm btn-secondary" id="btn-refresh-files">
+                        <i class="fa-solid fa-rotate"></i> Recargar Archivos
+                    </button>
+                </div>
+
+                <div class="files-table-wrapper">
+                    <table class="files-table">
+                        <thead>
+                            <tr>
+                                <th>Nombre del Archivo</th>
+                                <th>Jornadas Guardadas</th>
+                                <th>Tamaño</th>
+                                <th>Última Modificación</th>
+                                <th class="text-center">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="files-list-body">
+                            <tr>
+                                <td colspan="5" class="text-center text-muted">
+                                    <i class="fa-solid fa-circle-notch fa-spin"></i> Cargando archivos...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="app-footer">
+            <p>Sports Data Scraper System &copy; 2026 • Desarrollado con Playwright & Express</p>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

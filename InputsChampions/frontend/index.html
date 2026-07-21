@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Análisis completo de plantillas de la UEFA Champions League. Estadísticas, forma física, técnica y táctica de los 36 equipos.">
+    <title>UCL Squad Analyzer | UEFA Champions League Analysis</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles/main.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <div class="logo">
+                <div class="logo-icon">⚽</div>
+                <div class="logo-text">
+                    <span class="logo-title">UCL Squad Analyzer</span>
+                    <span class="logo-subtitle">Champions League 2025/26</span>
+                </div>
+            </div>
+            <nav class="nav">
+                <a href="#" class="nav-link active" data-view="dashboard">Dashboard</a>
+                <a href="#" class="nav-link" data-view="rankings">Rankings</a>
+                <a href="#" class="nav-link" data-view="compare">Comparar</a>
+                <a href="#" class="nav-link" data-view="fixtures">Partidos</a>
+            </nav>
+            <button class="refresh-btn" id="refreshBtn">
+                <span class="refresh-icon">↻</span>
+                Actualizar
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Dashboard View -->
+        <section id="dashboard-view" class="view active">
+            <div class="dashboard-header">
+                <h1>Dashboard de Análisis</h1>
+                <p>Análisis en tiempo real de los 36 equipos de la UEFA Champions League</p>
+            </div>
+
+            <!-- Stats Summary -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon physical">💪</div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="avgPhysical">--</span>
+                        <span class="stat-label">Promedio Físico</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon technical">⚡</div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="avgTechnical">--</span>
+                        <span class="stat-label">Promedio Técnico</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon tactical">🎯</div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="avgTactical">--</span>
+                        <span class="stat-label">Promedio Táctico</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon overall">🏆</div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="teamsLoaded">36</span>
+                        <span class="stat-label">Equipos Analizados</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Top Teams Section -->
+            <div class="section">
+                <div class="section-header">
+                    <h2>🔥 Top 10 Equipos en Mejor Forma</h2>
+                    <a href="#" class="view-all-link" data-view="rankings">Ver todos →</a>
+                </div>
+                <div class="top-teams-grid" id="topTeamsGrid">
+                    <!-- Populated by JS -->
+                    <div class="loading-placeholder">
+                        <div class="spinner"></div>
+                        <p>Cargando equipos...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts Section -->
+            <div class="charts-section">
+                <div class="chart-card">
+                    <h3>Distribución de Puntuaciones</h3>
+                    <canvas id="scoresChart"></canvas>
+                </div>
+                <div class="chart-card">
+                    <h3>Equipos por País</h3>
+                    <canvas id="countriesChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- Rankings View -->
+        <section id="rankings-view" class="view">
+            <div class="section-header">
+                <h1>Rankings de Equipos</h1>
+                <div class="filter-group">
+                    <label>Ordenar por:</label>
+                    <select id="rankingsSort" class="select-input">
+                        <option value="overall">Puntuación General</option>
+                        <option value="physical">Forma Física</option>
+                        <option value="technical">Forma Técnica</option>
+                        <option value="tactical">Forma Táctica</option>
+                    </select>
+                </div>
+            </div>
+            <div class="rankings-table-container">
+                <table class="rankings-table" id="rankingsTable">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Equipo</th>
+                            <th>País</th>
+                            <th>Físico</th>
+                            <th>Técnico</th>
+                            <th>Táctico</th>
+                            <th>General</th>
+                            <th>Estado</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rankingsBody">
+                        <!-- Populated by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Compare View -->
+        <section id="compare-view" class="view">
+            <div class="section-header">
+                <h1>Comparar Equipos</h1>
+            </div>
+            <div class="compare-selector">
+                <div class="team-select-group">
+                    <label>Equipo 1</label>
+                    <select id="team1Select" class="select-input team-select">
+                        <option value="">Seleccionar equipo...</option>
+                    </select>
+                </div>
+                <div class="vs-badge">VS</div>
+                <div class="team-select-group">
+                    <label>Equipo 2</label>
+                    <select id="team2Select" class="select-input team-select">
+                        <option value="">Seleccionar equipo...</option>
+                    </select>
+                </div>
+                <button class="compare-btn" id="compareBtn">Comparar</button>
+            </div>
+            <div class="comparison-result" id="comparisonResult">
+                <!-- Populated by JS -->
+                <div class="empty-state">
+                    <span class="empty-icon">🔍</span>
+                    <p>Selecciona dos equipos para compararlos</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Fixtures View -->
+        <section id="fixtures-view" class="view">
+            <div class="section-header">
+                <h1>Próximos Partidos</h1>
+                <p>Predicciones basadas en análisis de forma actual</p>
+            </div>
+            <div class="fixtures-list" id="fixturesList">
+                <!-- Populated by JS -->
+                <div class="loading-placeholder">
+                    <div class="spinner"></div>
+                    <p>Cargando partidos...</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Team Detail Modal -->
+        <div class="modal" id="teamModal">
+            <div class="modal-content">
+                <button class="modal-close" id="modalClose">&times;</button>
+                <div class="modal-body" id="modalBody">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-content">
+            <p>UCL Squad Analyzer © 2026 | Datos de UEFA.com, SofaScore, ESPN</p>
+            <p class="footer-note">Los análisis son estimaciones basadas en datos públicos disponibles.</p>
+        </div>
+    </footer>
+
+    <script src="scripts/api.js"></script>
+    <script src="scripts/charts.js"></script>
+    <script src="scripts/app.js"></script>
+</body>
+</html>
