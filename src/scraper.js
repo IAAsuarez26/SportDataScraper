@@ -192,13 +192,13 @@ async function scrapeSoccerdonnaHTTP(league, matchday, targetYear) {
                     score: scoreText
                 };
 
-                // Fast parallel report page fetch only if date is completely missing
+                // Fast parallel report page fetch with 5s timeout if date is completely missing
                 if (!matchDate && reportUrl) {
                     reportPromises.push((async () => {
                         try {
                             const repResp = await fetch(reportUrl, {
                                 redirect: 'follow',
-                                signal: AbortSignal.timeout(2000),
+                                signal: AbortSignal.timeout(5000),
                                 headers: {
                                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                                     'Accept-Language': 'de-DE,de;q=0.9'
@@ -207,7 +207,7 @@ async function scrapeSoccerdonnaHTTP(league, matchday, targetYear) {
                             if (repResp.ok) {
                                 const repHtml = await repResp.text();
                                 const repText = cheerio.load(repHtml)('body').text().replace(/\s+/g, ' ');
-                                const repDateMatch = repText.match(/(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Montag|Dienstag|Mittwoch|Donnerstag|Freitag|Samstag|Sonntag)?\s*,?\s*(\d{2}\.\d{2}\.\d{4})\s*-\s*(\d{1,2}:\d{2})\s*(?:Uhr)?/i)
+                                const repDateMatch = repText.match(/(\d{2}\.\d{2}\.\d{4})\s*-\s*(\d{1,2}:\d{2})\s*(?:Uhr)?/i)
                                     || repText.match(/(\d{2}\.\d{2}\.\d{4})/);
                                 if (repDateMatch) {
                                     item.date = repDateMatch[1].replace(/\./g, '/');

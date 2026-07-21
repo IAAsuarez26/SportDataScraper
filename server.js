@@ -160,6 +160,9 @@ async function runExtractionTask(leagueKey, startMatchday, endMatchday, customYe
                         if (match.time) {
                             let dt = DateTime.fromFormat(`${cleanDate} ${match.time}`, 'dd/MM/yyyy h:mm a', { zone: 'UTC' });
                             if (!dt.isValid) {
+                                dt = DateTime.fromFormat(`${cleanDate} ${match.time}`, 'dd/MM/yyyy H:mm', { zone: 'Europe/Berlin' });
+                            }
+                            if (!dt.isValid) {
                                 dt = DateTime.fromFormat(`${cleanDate} ${match.time}`, 'dd/MM/yyyy H:mm', { zone: 'UTC' });
                             }
                             if (dt.isValid) {
