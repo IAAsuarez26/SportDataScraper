@@ -1,6 +1,7 @@
 const path = require('path');
 const { DateTime } = require(path.join(process.cwd(), 'node_modules/luxon'));
 const config = require('./config');
+const LEAGUE_DATE_MAPS = require('./dateMaps');
 
 const ESPN_SLUGS = {
     mls: 'usa.1',
@@ -30,40 +31,6 @@ function deduplicateMatchday(matches) {
     return cleanMatches;
 }
 
-// Pre-calculated official Matchday Calendar Date Maps for major leagues (2026)
-const LEAGUE_DATE_MAPS = {
-    nwsl_2026: {
-        1: { start: '20260313', end: '20260316' },
-        2: { start: '20260320', end: '20260323' },
-        3: { start: '20260327', end: '20260330' },
-        4: { start: '20260417', end: '20260420' },
-        5: { start: '20260424', end: '20260427' },
-        6: { start: '20260501', end: '20260504' },
-        7: { start: '20260508', end: '20260511' },
-        8: { start: '20260515', end: '20260518' },
-        9: { start: '20260522', end: '20260525' },
-        10: { start: '20260605', end: '20260608' },
-        11: { start: '20260612', end: '20260615' },
-        12: { start: '20260619', end: '20260622' },
-        13: { start: '20260626', end: '20260629' },
-        14: { start: '20260724', end: '20260728' },
-        15: { start: '20260731', end: '20260804' },
-        16: { start: '20260821', end: '20260824' },
-        17: { start: '20260828', end: '20260831' },
-        18: { start: '20260904', end: '20260907' },
-        19: { start: '20260911', end: '20260914' },
-        20: { start: '20260918', end: '20260921' },
-        21: { start: '20260925', end: '20260928' },
-        22: { start: '20261002', end: '20261005' },
-        23: { start: '20261009', end: '20261012' },
-        24: { start: '20261016', end: '20261019' },
-        25: { start: '20261023', end: '20261026' },
-        26: { start: '20261101', end: '20261104' }
-    }
-};
-
-const espnCache = {};
-
 async function scrapePureEspnMatchday(leagueKey, matchdayNum, customYear) {
     const league = config.leagues[leagueKey];
     if (!league) throw new Error(`League ${leagueKey} not found.`);
@@ -85,7 +52,7 @@ async function scrapePureEspnMatchday(leagueKey, matchdayNum, customYear) {
     }
 
     const resp = await fetch(url, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
         signal: AbortSignal.timeout(6000)
     });
 
@@ -106,7 +73,7 @@ async function scrapePureEspnMatchday(leagueKey, matchdayNum, customYear) {
 
         events.forEach(ev => {
             const evDate = new Date(ev.date);
-            if (lastDate && (evDate - lastDate) > (4 * 24 * 60 * 60 * 1000)) {
+            if (lastDate && (evDate - lastDate) > (3.5 * 24 * 60 * 60 * 1000)) {
                 if (currentRound.length > 0) {
                     rounds.push(currentRound);
                     currentRound = [];
