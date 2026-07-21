@@ -1,6 +1,5 @@
 const cheerio = require('cheerio');
 const config = require('./config');
-const { fetchEspnMatchday } = require('./espnScraper');
 
 const BROWSER_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -185,7 +184,10 @@ async function scrapeSoccerdonnaHTTP(league, matchday, targetYear) {
                 if (headerRow.length === 0) continue;
 
                 const text = $(table).text().replace(/\s+/g, ' ');
-                const teamLinks = $(table).find('a').toArray().filter(a => $(a).attr('href').includes('/verein/'));
+                const teamLinks = $(table).find('a').toArray().filter(a => {
+                    const href = $(a).attr('href') || '';
+                    return href.includes('verein_') || href.includes('/verein/');
+                });
 
                 let homeTeam = 'N/A';
                 let awayTeam = 'N/A';
@@ -208,11 +210,13 @@ async function scrapeSoccerdonnaHTTP(league, matchday, targetYear) {
                 let matchDate = '';
                 let matchTime = '';
 
+                // Extract exact dd.mm.yyyy date
                 const dateMatch = text.match(/(\d{2}\.\d{2}\.\d{4})/);
                 if (dateMatch) {
                     matchDate = dateMatch[1].replace(/\./g, '/');
                 }
 
+                // Extract exact hh:mm time
                 const timeMatch = text.match(/(\d{1,2}:\d{2})/);
                 if (timeMatch) {
                     matchTime = timeMatch[1];
@@ -249,19 +253,8 @@ async function scrapeMatchday(leagueKey, matchday, customYear) {
     if (!league) throw new Error(`League ${leagueKey} not found in configuration.`);
 
     const targetYear = customYear || league.year || '2026';
-
-    // PRIMARY ENGINE: Official ESPN JSON API Endpoint
-    try {
-        const espnResults = await fetchEspnMatchday(leagueKey, matchday, targetYear);
-        if (espnResults && espnResults.length > 0) {
-            return deduplicateMatchday(espnResults);
-        }
-    } catch (e) {
-        console.warn(`[Engine Switch] ESPN Engine fallback to Cheerio HTTP: ${e.message}`);
-    }
-
-    // FALLBACK ENGINE: Cheerio HTTP Scraper
     const isSoccerdonna = league.source === 'soccerdonna';
+
     const rawResults = isSoccerdonna
         ? await scrapeSoccerdonnaHTTP(league, matchday, targetYear)
         : await scrapeTransfermarktHTTP(league, matchday, targetYear);
