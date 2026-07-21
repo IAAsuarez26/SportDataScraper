@@ -12,6 +12,25 @@ const BROWSER_HEADERS = {
     'Sec-Ch-Ua-Platform': '"Windows"'
 };
 
+function filterMatchesByYear(matches, targetYear) {
+    if (!matches || matches.length === 0) return [];
+    if (!targetYear) return matches;
+
+    const reqYear = parseInt(targetYear);
+    if (isNaN(reqYear)) return matches;
+
+    return matches.filter(m => {
+        if (!m.date) return true; // Keep matches without dates if future/unscheduled
+        const parts = m.date.split('/');
+        if (parts.length < 3) return true;
+        const matchYear = parseInt(parts[2]);
+        if (isNaN(matchYear)) return true;
+
+        // Strict Year Filter: Match year MUST match requested targetYear
+        return matchYear === reqYear;
+    });
+}
+
 function deduplicateMatchday(matches) {
     if (!matches || matches.length <= 1) return matches;
 
@@ -114,8 +133,13 @@ async function scrapeTransfermarktHTTP(league, matchday, targetYear) {
             });
 
             if (results.length > 0) {
-                console.log(`[HTTP Scraper] Successfully extracted ${results.length} matches.`);
-                return results;
+                const validResults = filterMatchesByYear(results, targetYear);
+                if (validResults.length > 0) {
+                    console.log(`[HTTP Scraper] Successfully extracted ${validResults.length} matches matching target year ${targetYear}.`);
+                    return validResults;
+                } else {
+                    console.warn(`[HTTP Scraper] Discarded ${results.length} matches from ${url} because their dates do not match requested year ${targetYear}.`);
+                }
             }
         } catch (err) {
             console.warn(`[HTTP Scraper] Error fetching ${url}: ${err.message}`);
@@ -250,8 +274,13 @@ async function scrapeSoccerdonnaHTTP(league, matchday, targetYear) {
             }
 
             if (results.length > 0) {
-                console.log(`[HTTP Scraper] Successfully extracted ${results.length} matches.`);
-                return results;
+                const validResults = filterMatchesByYear(results, targetYear);
+                if (validResults.length > 0) {
+                    console.log(`[HTTP Scraper] Successfully extracted ${validResults.length} matches matching target year ${targetYear}.`);
+                    return validResults;
+                } else {
+                    console.warn(`[HTTP Scraper] Discarded ${results.length} matches from ${url} because their dates do not match requested year ${targetYear}.`);
+                }
             }
         } catch (err) {
             console.warn(`[HTTP Scraper] Error fetching ${url}: ${err.message}`);
