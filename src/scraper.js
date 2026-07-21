@@ -167,10 +167,11 @@ async function scrapeSoccerdonnaHTTP(league, matchday, targetYear) {
                     reportUrl = `https://www.soccerdonna.de${reportUrl}`;
                 }
 
-                // If date/time is missing for completed match, fetch report via HTTP
+                // If date/time is missing for completed match, fetch report via HTTP safely
                 if ((!matchDate || !matchTime) && reportUrl) {
                     try {
                         const repResp = await fetch(reportUrl, {
+                            signal: AbortSignal.timeout(4000),
                             headers: {
                                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
                                 'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7'
@@ -220,49 +221,16 @@ async function scrapeMatchday(leagueKey, matchday, customYear) {
     const targetYear = customYear || league.year || '2025';
     const isSoccerdonna = league.source === 'soccerdonna';
 
-    // 1. Try ultra-fast HTTP Cheerio scraper (Vercel & cloud compatible, no browser binary required)
-    try {
-        const results = isSoccerdonna
-            ? await scrapeSoccerdonnaHTTP(league, matchday, targetYear)
-            : await scrapeTransfermarktHTTP(league, matchday, targetYear);
+    // Standalone, ultra-fast HTTP Cheerio scraper (100% cloud & Vercel compatible)
+    const results = isSoccerdonna
+        ? await scrapeSoccerdonnaHTTP(league, matchday, targetYear)
+        : await scrapeTransfermarktHTTP(league, matchday, targetYear);
 
-        if (results && results.length > 0) {
-            return results;
-        }
-    } catch (e) {
-        console.warn(`[HTTP Scraper] Fallback to Playwright due to: ${e.message}`);
+    if (results && results.length > 0) {
+        return results;
     }
 
-    // 2. Playwright Chromium Browser fallback (if Playwright browser binary is installed locally)
-    try {
-        const { chromium } = require('playwright');
-        const browser = await chromium.launch({ headless: true });
-        const context = await browser.newContext({
-            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-            viewport: { width: 1280, height: 720 },
-            timezoneId: 'America/Caracas',
-            locale: 'en-GB'
-        });
-        const page = await context.newPage();
-
-        try {
-            const baseUrl = isSoccerdonna ? (league.baseUrl || 'https://www.soccerdonna.de/de') : config.baseUrl;
-            const compType = league.compType || 'wettbewerb';
-            const url = isSoccerdonna
-                ? `${baseUrl}/${league.compName}/spieltagsuebersicht/wettbewerb_${league.compCode}_${targetYear}_${matchday}.html`
-                : `${baseUrl}/${league.compName}/spieltag/${compType}/${league.compCode}/plus/?saison_id=${targetYear}&spieltag=${matchday}`;
-
-            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-            await page.waitForTimeout(800);
-            
-            // Standard Playwright fallback evaluation if ever reached
-            return [];
-        } finally {
-            await browser.close();
-        }
-    } catch (err) {
-        throw new Error(`Scraping failed for ${leagueKey} matchday ${matchday}: ${err.message}`);
-    }
+    throw new Error(`No match data found for ${league.fileName || leagueKey} Matchday ${matchday} (Año ${targetYear}).`);
 }
 
 module.exports = { scrapeMatchday };
