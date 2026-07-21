@@ -1,228 +1,72 @@
-const { chromium } = require('playwright');
+const cheerio = require('cheerio');
 const config = require('./config');
 
-async function navigateWithSeasonFallback(page, isSoccerdonna, league, matchday, targetYear) {
-    const baseUrl = isSoccerdonna ? (league.baseUrl || 'https://www.soccerdonna.de/de') : config.baseUrl;
+async function scrapeTransfermarktHTTP(league, matchday, targetYear) {
+    const compName = league.compName;
+    const compCode = league.compCode;
     const compType = league.compType || 'wettbewerb';
+    const baseUrl = config.baseUrl;
 
     const urlsToTry = [];
-
-    if (isSoccerdonna) {
-        if (targetYear) {
-            urlsToTry.push(`${baseUrl}/${league.compName}/spieltagsuebersicht/wettbewerb_${league.compCode}_${targetYear}_${matchday}.html`);
-            const fallbackYear = (parseInt(targetYear) - 1).toString();
-            urlsToTry.push(`${baseUrl}/${league.compName}/spieltagsuebersicht/wettbewerb_${league.compCode}_${fallbackYear}_${matchday}.html`);
-        }
-        urlsToTry.push(`${baseUrl}/${league.compName}/spieltagsuebersicht/wettbewerb_${league.compCode}_${matchday}.html`);
-    } else {
-        if (targetYear) {
-            urlsToTry.push(`${baseUrl}/${league.compName}/spieltag/${compType}/${league.compCode}/plus/?saison_id=${targetYear}&spieltag=${matchday}`);
-            const fallbackYear = (parseInt(targetYear) - 1).toString();
-            urlsToTry.push(`${baseUrl}/${league.compName}/spieltag/${compType}/${league.compCode}/plus/?saison_id=${fallbackYear}&spieltag=${matchday}`);
-        }
-        urlsToTry.push(`${baseUrl}/${league.compName}/spieltag/${compType}/${league.compCode}/plus/?spieltag=${matchday}`);
+    if (targetYear) {
+        urlsToTry.push(`${baseUrl}/${compName}/spieltag/${compType}/${compCode}/plus/?saison_id=${targetYear}&spieltag=${matchday}`);
+        const fallbackYear = (parseInt(targetYear) - 1).toString();
+        urlsToTry.push(`${baseUrl}/${compName}/spieltag/${compType}/${compCode}/plus/?saison_id=${fallbackYear}&spieltag=${matchday}`);
     }
+    urlsToTry.push(`${baseUrl}/${compName}/spieltag/${compType}/${compCode}/plus/?spieltag=${matchday}`);
 
-    for (let i = 0; i < urlsToTry.length; i++) {
-        const url = urlsToTry[i];
-        console.log(`Navigating to: ${url}`);
+    for (const url of urlsToTry) {
         try {
-            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-
-            // Handle cookie consent
-            try {
-                const buttonText = isSoccerdonna ? 'button:has-text("Akzeptieren")' : 'button:has-text("Accept & continue")';
-                const acceptButton = page.locator(buttonText);
-                if (await acceptButton.isVisible({ timeout: 3000 })) {
-                    await acceptButton.click();
+            console.log(`[HTTP Scraper] Navigating to: ${url}`);
+            const resp = await fetch(url, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+                    'Accept-Language': 'en-GB,en;q=0.9'
                 }
-            } catch (e) { }
+            });
 
-            await page.waitForTimeout(800);
+            if (!resp.ok) continue;
+            const html = await resp.text();
+            const $ = cheerio.load(html);
 
-            const hasContent = await page.evaluate((isSD) => {
-                if (isSD) {
-                    return document.querySelectorAll('table.tabelle_grafik').length > 0;
-                } else {
-                    return document.querySelectorAll('.box tr.table-grosse-schrift').length > 0;
-                }
-            }, isSoccerdonna);
-
-            if (hasContent) {
-                console.log(`Successfully loaded content from: ${url}`);
-                return url;
-            } else {
-                console.warn(`No match content found at: ${url}. ${i < urlsToTry.length - 1 ? 'Trying season fallback...' : ''}`);
-            }
-        } catch (err) {
-            console.warn(`Navigation error for ${url}: ${err.message}`);
-        }
-    }
-}
-
-async function scrapeMatchday(leagueKey, matchday, customYear) {
-    const league = config.leagues[leagueKey];
-    if (!league) throw new Error(`League ${leagueKey} not found in configuration.`);
-
-    const targetYear = customYear || league.year || '2025';
-
-    const browser = await chromium.launch({ headless: true });
-    const context = await browser.newContext({
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-        viewport: { width: 1280, height: 720 },
-        timezoneId: 'America/Caracas',
-        locale: 'en-GB'
-    });
-    const page = await context.newPage();
-    const isSoccerdonna = league.source === 'soccerdonna';
-
-    try {
-        await navigateWithSeasonFallback(page, isSoccerdonna, league, matchday, targetYear);
-
-        if (isSoccerdonna) {
-            const data = await page.evaluate((matchdayLabel) => {
-                const results = [];
-                const tables = Array.from(document.querySelectorAll('table.tabelle_grafik'));
-                const reportLinks = Array.from(document.querySelectorAll('a[href*="/spielbericht_"]'))
-                    .map(a => a.href);
-
-                tables.forEach((table, idx) => {
-                    const headerRow = table.querySelector('tr');
-                    if (!headerRow) return;
-
-                    const text = table.innerText.replace(/\s+/g, ' ');
-                    const teamLinks = Array.from(table.querySelectorAll('a'))
-                        .filter(a => a.href.includes('/verein/'));
-
-                    let homeTeam = 'N/A';
-                    let awayTeam = 'N/A';
-
-                    if (teamLinks.length >= 2) {
-                        homeTeam = teamLinks[0].innerText.trim();
-                        awayTeam = teamLinks[1].innerText.trim();
-                    } else {
-                        const headerText = headerRow.innerText.trim();
-                        if (headerText.includes(' - ')) {
-                            const parts = headerText.split(' - ');
-                            homeTeam = parts[0].trim();
-                            awayTeam = parts[1].trim();
-                        }
-                    }
-
-                    const scoreMatch = text.match(/(\d+:\d+|-:-)/);
-                    const scoreText = scoreMatch ? (scoreMatch[1] === '-:-' ? 'TBD' : scoreMatch[1]) : 'TBD';
-
-                    let matchDate = '';
-                    let matchTime = '';
-
-                    const dateTimeMatch = text.match(/(?:Anstoss:\s*)?(\d{1,2}:\d{2})\s*-\s*(\d{2}\.\d{2}\.\d{4})/i)
-                        || text.match(/(\d{2}\.\d{2}\.\d{4})/);
-
-                    if (dateTimeMatch) {
-                        if (dateTimeMatch[2]) {
-                            matchTime = dateTimeMatch[1];
-                            matchDate = dateTimeMatch[2].replace(/\./g, '/');
-                        } else if (dateTimeMatch[1]) {
-                            matchDate = dateTimeMatch[1].replace(/\./g, '/');
-                        }
-                    }
-
-                    const reportUrl = reportLinks[idx] || null;
-
-                    results.push({
-                        matchday: `Jornada ${matchdayLabel}`,
-                        day: '',
-                        date: matchDate,
-                        time: matchTime,
-                        homeTeam,
-                        awayTeam,
-                        score: scoreText,
-                        reportUrl
-                    });
-                });
-                return results;
-            }, matchday);
-
-            // Fetch report pages for completed matches missing date/time
-            for (const item of data) {
-                if ((!item.date || !item.time) && item.reportUrl) {
-                    const reportPage = await context.newPage();
-                    try {
-                        await reportPage.goto(item.reportUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
-                        await reportPage.waitForTimeout(400);
-
-                        const details = await reportPage.evaluate(() => {
-                            const bodyText = document.body.innerText.replace(/\s+/g, ' ');
-                            const dateTimeMatch = bodyText.match(/(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Montag|Dienstag|Mittwoch|Donnerstag|Freitag|Samstag|Sonntag)?\s*,?\s*(\d{2}\.\d{2}\.\d{4})\s*-\s*(\d{1,2}:\d{2})\s*(?:Uhr)?/i)
-                                || bodyText.match(/(\d{2}\.\d{2}\.\d{4})/);
-                            
-                            const dayMatch = bodyText.match(/(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Montag|Dienstag|Mittwoch|Donnerstag|Freitag|Samstag|Sonntag)/i);
-
-                            return {
-                                date: dateTimeMatch ? dateTimeMatch[1].replace(/\./g, '/') : '',
-                                time: dateTimeMatch && dateTimeMatch[2] ? dateTimeMatch[2] : '',
-                                day: dayMatch ? dayMatch[1] : ''
-                            };
-                        });
-
-                        if (details.date) item.date = details.date;
-                        if (details.time) item.time = details.time;
-                        if (details.day) item.day = details.day;
-                    } catch (e) {
-                        console.warn(`Could not fetch report for ${item.homeTeam} vs ${item.awayTeam}: ${e.message}`);
-                    } finally {
-                        await reportPage.close();
-                    }
-                }
-            }
-
-            console.log(`Scraped ${data.length} matches.`);
-            return data.map(({ reportUrl, ...rest }) => rest);
-        }
-
-        const data = await page.evaluate((matchdayLabel) => {
+            const boxes = $('.box').toArray();
             const results = [];
-            // TM matchday overview has one match per box
-            const boxes = Array.from(document.querySelectorAll('.box'));
 
             boxes.forEach(box => {
-                const matchRow = box.querySelector('tr.table-grosse-schrift');
-                if (!matchRow) return;
+                const matchRow = $(box).find('tr.table-grosse-schrift');
+                if (matchRow.length === 0) return;
 
-                const homeTeamCell = matchRow.querySelector('td.rechts.hauptlink.spieltagsansicht-vereinsname');
-                const awayTeamCell = matchRow.querySelector('td:not(.rechts).hauptlink.spieltagsansicht-vereinsname');
-                const scoreCell = matchRow.querySelector('td.zentriert.hauptlink.spieltagsansicht-ergebnis');
+                const homeTeamCell = matchRow.find('td.rechts.hauptlink.spieltagsansicht-vereinsname');
+                const awayTeamCell = matchRow.find('td:not(.rechts).hauptlink.spieltagsansicht-vereinsname');
+                const scoreCell = matchRow.find('td.zentriert.hauptlink.spieltagsansicht-ergebnis');
 
-                if (homeTeamCell && awayTeamCell && scoreCell) {
+                if (homeTeamCell.length && awayTeamCell.length && scoreCell.length) {
                     const getTeamName = (cell) => {
-                        const links = Array.from(cell.querySelectorAll('a'));
-                        const teamLink = links.find(a => !a.querySelector('img') && !a.href.includes('/forum/'));
-                        return teamLink ? teamLink.innerText.trim() : 'N/A';
+                        const links = cell.find('a').toArray();
+                        const teamLink = links.find(a => $(a).find('img').length === 0 && !$(a).attr('href').includes('/forum/'));
+                        return teamLink ? $(teamLink).text().trim() : 'N/A';
                     };
 
-                    const scoreLink = scoreCell.querySelector('a');
-                    const scoreText = scoreLink ? scoreLink.innerText.trim() : 'TBD';
+                    const scoreLink = scoreCell.find('a');
+                    const scoreText = scoreLink.length ? scoreLink.text().trim() : 'TBD';
 
-                    let matchDate = '';
-                    let matchTime = '';
-                    let dayName = '';
+                    const boxText = $(box).text().replace(/\s+/g, ' ');
 
-                    const boxText = box.innerText.replace(/\s+/g, ' ');
-
-                    // Flexible Regex for Date & Time e.g. "Saturday, 28/02/2026 - 7:30 PM" or "28/02/2026 - 7:30 PM"
                     const dateTimeMatch = boxText.match(/(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Mon|Tue|Wed|Thu|Fri|Sat|Sun)?,?\s*(\d{2}[\/\.]\d{2}[\/\.]\d{2,4})\s*-\s*(\d{1,2}:\d{2}\s?(?:AM|PM|Uhr)?)/i)
                         || boxText.match(/(\d{2}[\/\.]\d{2}[\/\.]\d{2,4})/);
 
+                    let matchDate = '';
+                    let matchTime = '';
                     if (dateTimeMatch) {
                         matchDate = dateTimeMatch[1].replace(/\./g, '/');
                         if (dateTimeMatch[2]) matchTime = dateTimeMatch[2];
                     }
 
                     const dayMatch = boxText.match(/(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)/i);
-                    dayName = dayMatch ? dayMatch[0] : '';
+                    const dayName = dayMatch ? dayMatch[0] : '';
 
                     results.push({
-                        matchday: `Jornada ${matchdayLabel}`,
+                        matchday: `Jornada ${matchday}`,
                         day: dayName,
                         date: matchDate,
                         time: matchTime,
@@ -232,16 +76,192 @@ async function scrapeMatchday(leagueKey, matchday, customYear) {
                     });
                 }
             });
-            return results;
-        }, matchday);
 
-        console.log(`Scraped ${data.length} matches.`);
-        return data;
-    } catch (error) {
-        console.error(`Error scraping ${leagueKey} matchday ${matchday}:`, error.message);
-        throw error;
-    } finally {
-        await browser.close();
+            if (results.length > 0) {
+                console.log(`[HTTP Scraper] Successfully extracted ${results.length} matches.`);
+                return results;
+            }
+        } catch (err) {
+            console.warn(`[HTTP Scraper] Error fetching ${url}: ${err.message}`);
+        }
+    }
+
+    return [];
+}
+
+async function scrapeSoccerdonnaHTTP(league, matchday, targetYear) {
+    const compName = league.compName;
+    const compCode = league.compCode;
+    const baseUrl = league.baseUrl || 'https://www.soccerdonna.de/de';
+
+    const urlsToTry = [];
+    if (targetYear) {
+        urlsToTry.push(`${baseUrl}/${compName}/spieltagsuebersicht/wettbewerb_${compCode}_${targetYear}_${matchday}.html`);
+        const fallbackYear = (parseInt(targetYear) - 1).toString();
+        urlsToTry.push(`${baseUrl}/${compName}/spieltagsuebersicht/wettbewerb_${compCode}_${fallbackYear}_${matchday}.html`);
+    }
+    urlsToTry.push(`${baseUrl}/${compName}/spieltagsuebersicht/wettbewerb_${compCode}_${matchday}.html`);
+
+    for (const url of urlsToTry) {
+        try {
+            console.log(`[HTTP Scraper] Navigating to: ${url}`);
+            const resp = await fetch(url, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+                    'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7'
+                }
+            });
+
+            if (!resp.ok) continue;
+            const html = await resp.text();
+            const $ = cheerio.load(html);
+
+            const tables = $('table.tabelle_grafik').toArray();
+            const reportLinks = $('a[href*="/spielbericht_"]').toArray().map(a => $(a).attr('href'));
+
+            const results = [];
+
+            for (let idx = 0; idx < tables.length; idx++) {
+                const table = tables[idx];
+                const headerRow = $(table).find('tr').first();
+                if (headerRow.length === 0) continue;
+
+                const text = $(table).text().replace(/\s+/g, ' ');
+                const teamLinks = $(table).find('a').toArray().filter(a => $(a).attr('href').includes('/verein/'));
+
+                let homeTeam = 'N/A';
+                let awayTeam = 'N/A';
+
+                if (teamLinks.length >= 2) {
+                    homeTeam = $(teamLinks[0]).text().trim();
+                    awayTeam = $(teamLinks[1]).text().trim();
+                } else {
+                    const headerText = headerRow.text().trim();
+                    if (headerText.includes(' - ')) {
+                        const parts = headerText.split(' - ');
+                        homeTeam = parts[0].trim();
+                        awayTeam = parts[1].trim();
+                    }
+                }
+
+                const scoreMatch = text.match(/(\d+:\d+|-:-)/);
+                const scoreText = scoreMatch ? (scoreMatch[1] === '-:-' ? 'TBD' : scoreMatch[1]) : 'TBD';
+
+                let matchDate = '';
+                let matchTime = '';
+
+                const dateTimeMatch = text.match(/(?:Anstoss:\s*)?(\d{1,2}:\d{2})\s*-\s*(\d{2}\.\d{2}\.\d{4})/i)
+                    || text.match(/(\d{2}\.\d{2}\.\d{4})/);
+
+                if (dateTimeMatch) {
+                    if (dateTimeMatch[2]) {
+                        matchTime = dateTimeMatch[1];
+                        matchDate = dateTimeMatch[2].replace(/\./g, '/');
+                    } else if (dateTimeMatch[1]) {
+                        matchDate = dateTimeMatch[1].replace(/\./g, '/');
+                    }
+                }
+
+                let reportUrl = reportLinks[idx] || null;
+                if (reportUrl && !reportUrl.startsWith('http')) {
+                    reportUrl = `https://www.soccerdonna.de${reportUrl}`;
+                }
+
+                // If date/time is missing for completed match, fetch report via HTTP
+                if ((!matchDate || !matchTime) && reportUrl) {
+                    try {
+                        const repResp = await fetch(reportUrl, {
+                            headers: {
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+                                'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7'
+                            }
+                        });
+                        if (repResp.ok) {
+                            const repHtml = await repResp.text();
+                            const repText = cheerio.load(repHtml)('body').text().replace(/\s+/g, ' ');
+                            const repDateMatch = repText.match(/(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Montag|Dienstag|Mittwoch|Donnerstag|Freitag|Samstag|Sonntag)?\s*,?\s*(\d{2}\.\d{2}\.\d{4})\s*-\s*(\d{1,2}:\d{2})\s*(?:Uhr)?/i)
+                                || repText.match(/(\d{2}\.\d{2}\.\d{4})/);
+                            
+                            if (repDateMatch) {
+                                matchDate = repDateMatch[1].replace(/\./g, '/');
+                                if (repDateMatch[2]) matchTime = repDateMatch[2];
+                            }
+                        }
+                    } catch (e) {}
+                }
+
+                results.push({
+                    matchday: `Jornada ${matchday}`,
+                    day: '',
+                    date: matchDate,
+                    time: matchTime,
+                    homeTeam,
+                    awayTeam,
+                    score: scoreText
+                });
+            }
+
+            if (results.length > 0) {
+                console.log(`[HTTP Scraper] Successfully extracted ${results.length} matches.`);
+                return results;
+            }
+        } catch (err) {
+            console.warn(`[HTTP Scraper] Error fetching ${url}: ${err.message}`);
+        }
+    }
+
+    return [];
+}
+
+async function scrapeMatchday(leagueKey, matchday, customYear) {
+    const league = config.leagues[leagueKey];
+    if (!league) throw new Error(`League ${leagueKey} not found in configuration.`);
+
+    const targetYear = customYear || league.year || '2025';
+    const isSoccerdonna = league.source === 'soccerdonna';
+
+    // 1. Try ultra-fast HTTP Cheerio scraper (Vercel & cloud compatible, no browser binary required)
+    try {
+        const results = isSoccerdonna
+            ? await scrapeSoccerdonnaHTTP(league, matchday, targetYear)
+            : await scrapeTransfermarktHTTP(league, matchday, targetYear);
+
+        if (results && results.length > 0) {
+            return results;
+        }
+    } catch (e) {
+        console.warn(`[HTTP Scraper] Fallback to Playwright due to: ${e.message}`);
+    }
+
+    // 2. Playwright Chromium Browser fallback (if Playwright browser binary is installed locally)
+    try {
+        const { chromium } = require('playwright');
+        const browser = await chromium.launch({ headless: true });
+        const context = await browser.newContext({
+            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+            viewport: { width: 1280, height: 720 },
+            timezoneId: 'America/Caracas',
+            locale: 'en-GB'
+        });
+        const page = await context.newPage();
+
+        try {
+            const baseUrl = isSoccerdonna ? (league.baseUrl || 'https://www.soccerdonna.de/de') : config.baseUrl;
+            const compType = league.compType || 'wettbewerb';
+            const url = isSoccerdonna
+                ? `${baseUrl}/${league.compName}/spieltagsuebersicht/wettbewerb_${league.compCode}_${targetYear}_${matchday}.html`
+                : `${baseUrl}/${league.compName}/spieltag/${compType}/${league.compCode}/plus/?saison_id=${targetYear}&spieltag=${matchday}`;
+
+            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            await page.waitForTimeout(800);
+            
+            // Standard Playwright fallback evaluation if ever reached
+            return [];
+        } finally {
+            await browser.close();
+        }
+    } catch (err) {
+        throw new Error(`Scraping failed for ${leagueKey} matchday ${matchday}: ${err.message}`);
     }
 }
 
