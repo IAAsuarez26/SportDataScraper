@@ -117,9 +117,11 @@ async function scrapeSoccerdonnaHTTP(league, matchday, targetYear) {
             const $ = cheerio.load(html);
 
             const tables = $('table.tabelle_grafik').toArray();
-            const reportLinks = $('a[href*="/spielbericht_"]').toArray().map(a => $(a).attr('href'));
+            if (tables.length === 0) continue;
 
+            const reportLinks = $('a[href*="/spielbericht_"]').toArray().map(a => $(a).attr('href'));
             const results = [];
+            const reportPromises = [];
 
             for (let idx = 0; idx < tables.length; idx++) {
                 const table = tables[idx];
@@ -167,31 +169,7 @@ async function scrapeSoccerdonnaHTTP(league, matchday, targetYear) {
                     reportUrl = `https://www.soccerdonna.de${reportUrl}`;
                 }
 
-                // If date/time is missing for completed match, fetch report via HTTP safely
-                if ((!matchDate || !matchTime) && reportUrl) {
-                    try {
-                        const repResp = await fetch(reportUrl, {
-                            signal: AbortSignal.timeout(4000),
-                            headers: {
-                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-                                'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7'
-                            }
-                        });
-                        if (repResp.ok) {
-                            const repHtml = await repResp.text();
-                            const repText = cheerio.load(repHtml)('body').text().replace(/\s+/g, ' ');
-                            const repDateMatch = repText.match(/(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Montag|Dienstag|Mittwoch|Donnerstag|Freitag|Samstag|Sonntag)?\s*,?\s*(\d{2}\.\d{2}\.\d{4})\s*-\s*(\d{1,2}:\d{2})\s*(?:Uhr)?/i)
-                                || repText.match(/(\d{2}\.\d{2}\.\d{4})/);
-                            
-                            if (repDateMatch) {
-                                matchDate = repDateMatch[1].replace(/\./g, '/');
-                                if (repDateMatch[2]) matchTime = repDateMatch[2];
-                            }
-                        }
-                    } catch (e) {}
-                }
-
-                results.push({
+                const item = {
                     matchday: `Jornada ${matchday}`,
                     day: '',
                     date: matchDate,
@@ -199,7 +177,38 @@ async function scrapeSoccerdonnaHTTP(league, matchday, targetYear) {
                     homeTeam,
                     awayTeam,
                     score: scoreText
-                });
+                };
+
+                // Fast parallel report page fetch only if date is completely missing
+                if (!matchDate && reportUrl) {
+                    reportPromises.push((async () => {
+                        try {
+                            const repResp = await fetch(reportUrl, {
+                                signal: AbortSignal.timeout(1500),
+                                headers: {
+                                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+                                    'Accept-Language': 'de-DE,de;q=0.9'
+                                }
+                            });
+                            if (repResp.ok) {
+                                const repHtml = await repResp.text();
+                                const repText = cheerio.load(repHtml)('body').text().replace(/\s+/g, ' ');
+                                const repDateMatch = repText.match(/(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Montag|Dienstag|Mittwoch|Donnerstag|Freitag|Samstag|Sonntag)?\s*,?\s*(\d{2}\.\d{2}\.\d{4})\s*-\s*(\d{1,2}:\d{2})\s*(?:Uhr)?/i)
+                                    || repText.match(/(\d{2}\.\d{2}\.\d{4})/);
+                                if (repDateMatch) {
+                                    item.date = repDateMatch[1].replace(/\./g, '/');
+                                    if (repDateMatch[2]) item.time = repDateMatch[2];
+                                }
+                            }
+                        } catch (e) {}
+                    })());
+                }
+
+                results.push(item);
+            }
+
+            if (reportPromises.length > 0) {
+                await Promise.allSettled(reportPromises);
             }
 
             if (results.length > 0) {
