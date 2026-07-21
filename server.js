@@ -123,7 +123,7 @@ async function runExtractionTask(leagueKey, startMatchday, endMatchday, customYe
     const meta = LEAGUE_METADATA[leagueKey] || { name: league.fileName };
     addLog(`🚀 Starting extraction for ${meta.flag || ''} ${meta.name} (Año ${targetYear}, Jornadas ${startMatchday} - ${endMatchday})...`);
 
-    const dataDir = path.join(__dirname, 'data');
+    const dataDir = config.getDataDir();
     await fs.ensureDir(dataDir);
     const excelPath = path.join(dataDir, `${league.fileName}.xlsx`);
 
@@ -261,7 +261,7 @@ app.post('/api/stop', (req, res) => {
 // GET /api/files - List Excel files in data directory
 app.get('/api/files', async (req, res) => {
     try {
-        const dataDir = path.join(__dirname, 'data');
+        const dataDir = config.getDataDir();
         await fs.ensureDir(dataDir);
 
         const files = await fs.readdir(dataDir);
@@ -307,7 +307,8 @@ app.get('/api/files/download/:filename', async (req, res) => {
             return res.status(400).send('Invalid filename');
         }
 
-        const filePath = path.join(__dirname, 'data', filename);
+        const dataDir = config.getDataDir();
+        const filePath = path.join(dataDir, filename);
         if (!await fs.pathExists(filePath)) {
             return res.status(404).send('File not found');
         }

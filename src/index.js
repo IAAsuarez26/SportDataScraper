@@ -75,7 +75,7 @@ async function main() {
     const endMatchday = parseInt(args[2]) || 34;
     const customYear = args[3] || league.year || '2025';
 
-    const dataDir = path.join(__dirname, '../data');
+    const dataDir = config.getDataDir();
     await fs.ensureDir(dataDir);
 
     console.log(`Starting bulk scraper for League: ${leagueKey} (${league.fileName}), Year: ${customYear}, Matchdays: ${startMatchday} to ${endMatchday}...`);
