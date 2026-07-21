@@ -189,6 +189,7 @@ async function runExtractionTask(leagueKey, startMatchday, endMatchday, customYe
         activeJob.progress = 100;
         activeJob.completedAt = new Date();
         addLog(`🎉 Extraction completed successfully for ${meta.name}!`, 'success');
+        addLog(`📁 File generated: ${league.fileName}.xlsx (available for download below)`, 'success');
     } catch (err) {
         activeJob.error = err.message;
         addLog(`❌ Extraction error: ${err.message}`, 'error');

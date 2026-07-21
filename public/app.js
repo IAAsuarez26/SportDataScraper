@@ -166,6 +166,8 @@ async function checkStatus() {
     }
 }
 
+let wasRunning = false;
+
 function updateUIStatus(job) {
     const statusPill = document.getElementById('system-status-pill');
     const statusText = document.getElementById('status-text');
@@ -174,6 +176,7 @@ function updateUIStatus(job) {
     const progressPercentage = document.getElementById('progress-percentage');
 
     if (job.isRunning) {
+        wasRunning = true;
         statusPill.className = 'status-pill running';
         const leagueName = leaguesData.find(l => l.key === job.leagueKey)?.name || job.leagueKey;
         statusText.innerText = `Extrayendo ${leagueName} (Jornada ${job.currentMatchday})...`;
@@ -182,6 +185,10 @@ function updateUIStatus(job) {
         // Disable extract buttons
         document.querySelectorAll('.card-btn').forEach(btn => btn.disabled = true);
     } else {
+        if (wasRunning) {
+            wasRunning = false;
+            fetchFiles();
+        }
         statusPill.className = 'status-pill';
         statusText.innerText = job.completedAt ? 'Extracción finalizada' : 'Listo para extraer';
         stopBtn.disabled = true;
