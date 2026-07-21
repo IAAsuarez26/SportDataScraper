@@ -16,11 +16,11 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // Metadata for leagues presentation
 const LEAGUE_METADATA = {
-    bundesliga: { name: 'Bundesliga', country: 'Germany', flag: '🇩🇪', accent: '#D0021B', defaultStart: 19, defaultEnd: 34, maxMatchdays: 34 },
-    premier: { name: 'Premier League', country: 'England', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', accent: '#38003C', defaultStart: 19, defaultEnd: 38, maxMatchdays: 38 },
-    calcio: { name: 'Serie A (Calcio)', country: 'Italy', flag: '🇮🇹', accent: '#008FD7', defaultStart: 19, defaultEnd: 38, maxMatchdays: 38 },
-    la_liga: { name: 'La Liga', country: 'Spain', flag: '🇪🇸', accent: '#EE8700', defaultStart: 19, defaultEnd: 38, maxMatchdays: 38 },
-    france: { name: 'Ligue 1', country: 'France', flag: '🇫🇷', accent: '#DAE025', defaultStart: 19, defaultEnd: 34, maxMatchdays: 34 },
+    bundesliga: { name: 'Bundesliga', country: 'Germany', flag: '🇩🇪', accent: '#D0021B', defaultStart: 1, defaultEnd: 34, maxMatchdays: 34 },
+    premier: { name: 'Premier League', country: 'England', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', accent: '#38003C', defaultStart: 1, defaultEnd: 38, maxMatchdays: 38 },
+    calcio: { name: 'Serie A (Calcio)', country: 'Italy', flag: '🇮🇹', accent: '#008FD7', defaultStart: 1, defaultEnd: 38, maxMatchdays: 38 },
+    la_liga: { name: 'La Liga', country: 'Spain', flag: '🇪🇸', accent: '#EE8700', defaultStart: 1, defaultEnd: 38, maxMatchdays: 38 },
+    france: { name: 'Ligue 1', country: 'France', flag: '🇫🇷', accent: '#DAE025', defaultStart: 1, defaultEnd: 34, maxMatchdays: 34 },
     champions: { name: 'UEFA Champions League', country: 'Europe', flag: '🇪🇺', accent: '#001489', defaultStart: 1, defaultEnd: 8, maxMatchdays: 10 },
     mls: { name: 'Major League Soccer (MLS)', country: 'USA', flag: '🇺🇸', accent: '#002B49', defaultStart: 1, defaultEnd: 34, maxMatchdays: 34 },
     nwsl: { name: 'National Women\'s Soccer League (NWSL)', country: 'USA (Women)', flag: '🇺🇸', accent: '#E30613', defaultStart: 1, defaultEnd: 26, maxMatchdays: 26 }
@@ -230,23 +230,45 @@ async function fetchLeagueLiveStatus(leagueKey) {
         const $ = cheerio.load(html);
 
         const selectOptions = $('select[name="spieltag"] option').toArray();
-        const total = selectOptions.length || 34;
+        const total = selectOptions.length || (leagueKey === 'champions' ? 10 : (['bundesliga', 'france'].includes(leagueKey) ? 34 : 38));
 
-        let completed = 0;
+        let currentOptionNum = 0;
 
         const selectedOption = $('select[name="spieltag"] option[selected]');
         if (selectedOption.length > 0) {
             const m = selectedOption.text().match(/(\d+)/);
-            if (m) completed = parseInt(m[1]);
+            if (m) currentOptionNum = parseInt(m[1]);
         }
 
-        if (!completed && selectOptions.length > 0) {
+        if (!currentOptionNum && selectOptions.length > 0) {
             const firstOpt = $(selectOptions[0]).text();
             const m = firstOpt.match(/(\d+)/);
-            if (m) completed = parseInt(m[1]);
+            if (m) currentOptionNum = parseInt(m[1]);
         }
 
-        const data = { completed: completed || 0, total };
+        // Verify if current matchday has actual played match scores
+        let hasFinishedMatches = false;
+        if (isSoccerdonna) {
+            const scores = $('table.tabelle_grafik').text();
+            if (/\d+:\d+/.test(scores) && !/-:-/.test(scores)) {
+                hasFinishedMatches = true;
+            }
+        } else {
+            const scoreCells = $('td.zentriert.hauptlink.spieltagsansicht-ergebnis a').toArray();
+            hasFinishedMatches = scoreCells.some(a => {
+                const text = $(a).text().trim();
+                return /\d+:\d+/.test(text);
+            });
+        }
+
+        let completed = 0;
+        if (currentOptionNum > 0) {
+            completed = hasFinishedMatches ? currentOptionNum : currentOptionNum - 1;
+        }
+
+        if (completed < 0) completed = 0;
+
+        const data = { completed, total };
         liveStatusCache[leagueKey] = { timestamp: Date.now(), data };
         return data;
     } catch (e) {
@@ -271,7 +293,7 @@ app.get('/api/leagues', async (req, res) => {
         } catch (e) {}
 
         const maxMatchdays = meta.maxMatchdays || 34;
-        const nextMatchday = completed > 0 ? Math.min(completed + 1, maxMatchdays) : (meta.defaultStart || 1);
+        const nextMatchday = completed > 0 ? Math.min(completed + 1, maxMatchdays) : 1;
 
         return {
             key,
