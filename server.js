@@ -129,6 +129,9 @@ async function runExtractionTask(leagueKey, startMatchday, endMatchday, customYe
 
     const totalMatchdays = (endMatchday - startMatchday) + 1;
 
+    let successCount = 0;
+    let failCount = 0;
+
     try {
         for (let m = startMatchday; m <= endMatchday; m++) {
             if (activeJob.cancelRequested) {
@@ -142,60 +145,75 @@ async function runExtractionTask(leagueKey, startMatchday, endMatchday, customYe
 
             addLog(`🔍 Scraping Matchday ${m} / ${endMatchday} (Año ${targetYear})...`);
 
-            const matches = await scrapeMatchday(leagueKey, m.toString(), targetYear);
+            try {
+                const matches = await scrapeMatchday(leagueKey, m.toString(), targetYear);
 
-            if (!matches || matches.length === 0) {
-                addLog(`⚠️ No matches found for Matchday ${m}. Skipping...`, 'warn');
-                continue;
-            }
+                if (!matches || matches.length === 0) {
+                    addLog(`⚠️ No matches found for Matchday ${m}. Skipping...`, 'warn');
+                    failCount++;
+                } else {
+                    const localizedMatches = matches.map(match => {
+                        let localizedTime = match.time;
+                        let localizedDate = match.date;
+                        let localizedDay = match.day;
 
-            const localizedMatches = matches.map(match => {
-                let localizedTime = match.time;
-                let localizedDate = match.date;
-                let localizedDay = match.day;
-
-                if (match.date) {
-                    try {
-                        const cleanDate = match.date.replace(/\./g, '/');
-                        if (match.time) {
-                            let dt = DateTime.fromFormat(`${cleanDate} ${match.time}`, 'dd/MM/yyyy h:mm a', { zone: 'UTC' });
-                            if (!dt.isValid) {
-                                dt = DateTime.fromFormat(`${cleanDate} ${match.time}`, 'dd/MM/yyyy H:mm', { zone: 'Europe/Berlin' });
-                            }
-                            if (!dt.isValid) {
-                                dt = DateTime.fromFormat(`${cleanDate} ${match.time}`, 'dd/MM/yyyy H:mm', { zone: 'UTC' });
-                            }
-                            if (dt.isValid) {
-                                const caracasDT = dt.setZone('America/Caracas');
-                                localizedTime = caracasDT.toFormat('h:mm a');
-                                localizedDate = caracasDT.toFormat('dd/MM/yyyy');
-                                localizedDay = caracasDT.toFormat('EEEE');
-                            }
-                        } else {
-                            let dt = DateTime.fromFormat(cleanDate, 'dd/MM/yyyy', { zone: 'UTC' });
-                            if (dt.isValid) {
-                                localizedDate = dt.toFormat('dd/MM/yyyy');
-                                localizedDay = dt.toFormat('EEEE');
+                        if (match.date) {
+                            try {
+                                const cleanDate = match.date.replace(/\./g, '/');
+                                if (match.time) {
+                                    let dt = DateTime.fromFormat(`${cleanDate} ${match.time}`, 'dd/MM/yyyy h:mm a', { zone: 'UTC' });
+                                    if (!dt.isValid) {
+                                        dt = DateTime.fromFormat(`${cleanDate} ${match.time}`, 'dd/MM/yyyy H:mm', { zone: 'Europe/Berlin' });
+                                    }
+                                    if (!dt.isValid) {
+                                        dt = DateTime.fromFormat(`${cleanDate} ${match.time}`, 'dd/MM/yyyy H:mm', { zone: 'UTC' });
+                                    }
+                                    if (dt.isValid) {
+                                        const caracasDT = dt.setZone('America/Caracas');
+                                        localizedTime = caracasDT.toFormat('h:mm a');
+                                        localizedDate = caracasDT.toFormat('dd/MM/yyyy');
+                                        localizedDay = caracasDT.toFormat('EEEE');
+                                    }
+                                } else {
+                                    let dt = DateTime.fromFormat(cleanDate, 'dd/MM/yyyy', { zone: 'UTC' });
+                                    if (dt.isValid) {
+                                        localizedDate = dt.toFormat('dd/MM/yyyy');
+                                        localizedDay = dt.toFormat('EEEE');
+                                    }
+                                }
+                            } catch (e) {
+                                addLog(`Date parse note: ${e.message}`, 'warn');
                             }
                         }
-                    } catch (e) {
-                        addLog(`Date parse note: ${e.message}`, 'warn');
-                    }
-                }
-                return { ...match, day: localizedDay, date: localizedDate, time: localizedTime };
-            });
+                        return { ...match, day: localizedDay, date: localizedDate, time: localizedTime };
+                    });
 
-            await exportToExcel(localizedMatches, m.toString(), excelPath);
-            addLog(`✅ Successfully saved ${matches.length} matches for Matchday ${m} into ${league.fileName}.xlsx`);
+                    await exportToExcel(localizedMatches, m.toString(), excelPath);
+                    addLog(`✅ Successfully saved ${matches.length} matches for Matchday ${m} into ${league.fileName}.xlsx`);
+                    successCount++;
+                }
+            } catch (matchdayErr) {
+                addLog(`⚠️ Could not retrieve Matchday ${m}: ${matchdayErr.message}. Continuing with remaining matchdays...`, 'warn');
+                failCount++;
+            }
+
+            // Small delay between requests to avoid rate limits / connection drops
+            if (m < endMatchday) {
+                await new Promise(resolve => setTimeout(resolve, 600));
+            }
         }
 
         activeJob.progress = 100;
         activeJob.completedAt = new Date();
-        addLog(`🎉 Extraction completed successfully for ${meta.name}!`, 'success');
-        addLog(`📁 File generated: ${league.fileName}.xlsx (available for download below)`, 'success');
+        if (successCount > 0) {
+            addLog(`🎉 Extraction completed! ${successCount} matchday(s) saved (${failCount} skipped/failed) for ${meta.name}!`, 'success');
+            addLog(`📁 File generated: ${league.fileName}.xlsx (available for download below)`, 'success');
+        } else {
+            addLog(`⚠️ Extraction finished, but no matchdays could be retrieved.`, 'warn');
+        }
     } catch (err) {
         activeJob.error = err.message;
-        addLog(`❌ Extraction error: ${err.message}`, 'error');
+        addLog(`❌ Extraction task error: ${err.message}`, 'error');
     } finally {
         activeJob.isRunning = false;
     }

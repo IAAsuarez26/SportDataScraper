@@ -31,6 +31,26 @@ function deduplicateMatchday(matches) {
     return cleanMatches;
 }
 
+async function fetchWithRetry(url, options = {}, retries = 3, backoff = 1000) {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+            const resp = await fetch(url, {
+                ...options,
+                signal: AbortSignal.timeout(options.timeout || 15000)
+            });
+            if (resp.ok) return resp;
+            if (attempt === retries) {
+                throw new Error(`HTTP ${resp.status} fetching ${url}`);
+            }
+            console.warn(`[Pure Engine] Attempt ${attempt}/${retries} returned HTTP ${resp.status} for ${url}. Retrying in ${backoff * attempt}ms...`);
+        } catch (err) {
+            if (attempt === retries) throw err;
+            console.warn(`[Pure Engine] Attempt ${attempt}/${retries} failed for ${url} (${err.message}). Retrying in ${backoff * attempt}ms...`);
+        }
+        await new Promise(r => setTimeout(r, backoff * attempt));
+    }
+}
+
 async function scrapePureEspnMatchday(leagueKey, matchdayNum, customYear) {
     const league = config.leagues[leagueKey];
     if (!league) throw new Error(`League ${leagueKey} not found.`);
@@ -51,12 +71,11 @@ async function scrapePureEspnMatchday(leagueKey, matchdayNum, customYear) {
         console.log(`[Pure Engine] Fetching ${leagueKey} full schedule for Year ${targetYear}: ${url}`);
     }
 
-    const resp = await fetch(url, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
-        signal: AbortSignal.timeout(6000)
-    });
+    const resp = await fetchWithRetry(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+        timeout: 15000
+    }, 3, 1000);
 
-    if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching ${url}`);
     const data = await resp.json();
     const events = data.events || [];
 
