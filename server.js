@@ -152,43 +152,8 @@ async function runExtractionTask(leagueKey, startMatchday, endMatchday, customYe
                     addLog(`⚠️ No matches found for Matchday ${m}. Skipping...`, 'warn');
                     failCount++;
                 } else {
-                    const localizedMatches = matches.map(match => {
-                        let localizedTime = match.time;
-                        let localizedDate = match.date;
-                        let localizedDay = match.day;
-
-                        if (match.date) {
-                            try {
-                                const cleanDate = match.date.replace(/\./g, '/');
-                                if (match.time) {
-                                    let dt = DateTime.fromFormat(`${cleanDate} ${match.time}`, 'dd/MM/yyyy h:mm a', { zone: 'UTC' });
-                                    if (!dt.isValid) {
-                                        dt = DateTime.fromFormat(`${cleanDate} ${match.time}`, 'dd/MM/yyyy H:mm', { zone: 'Europe/Berlin' });
-                                    }
-                                    if (!dt.isValid) {
-                                        dt = DateTime.fromFormat(`${cleanDate} ${match.time}`, 'dd/MM/yyyy H:mm', { zone: 'UTC' });
-                                    }
-                                    if (dt.isValid) {
-                                        const caracasDT = dt.setZone('America/Caracas');
-                                        localizedTime = caracasDT.toFormat('h:mm a');
-                                        localizedDate = caracasDT.toFormat('dd/MM/yyyy');
-                                        localizedDay = caracasDT.toFormat('EEEE');
-                                    }
-                                } else {
-                                    let dt = DateTime.fromFormat(cleanDate, 'dd/MM/yyyy', { zone: 'UTC' });
-                                    if (dt.isValid) {
-                                        localizedDate = dt.toFormat('dd/MM/yyyy');
-                                        localizedDay = dt.toFormat('EEEE');
-                                    }
-                                }
-                            } catch (e) {
-                                addLog(`Date parse note: ${e.message}`, 'warn');
-                            }
-                        }
-                        return { ...match, day: localizedDay, date: localizedDate, time: localizedTime };
-                    });
-
-                    await exportToExcel(localizedMatches, m.toString(), excelPath);
+                    // Matches are already formatted in Caracas timezone (America/Caracas, UTC-4) by scrapeMatchday
+                    await exportToExcel(matches, m.toString(), excelPath);
                     addLog(`✅ Successfully saved ${matches.length} matches for Matchday ${m} into ${league.fileName}.xlsx`);
                     successCount++;
                 }

@@ -90,44 +90,10 @@ async function main() {
                 continue;
             }
 
-            // Localize times for JSON output
-            const localizedMatches = matches.map(match => {
-                let localizedTime = match.time;
-                let localizedDate = match.date;
-                let localizedDay = match.day;
-
-                if (match.date) {
-                    try {
-                        const cleanDate = match.date.replace(/\./g, '/');
-                        if (match.time) {
-                            let dt = DateTime.fromFormat(`${cleanDate} ${match.time}`, 'dd/MM/yyyy h:mm a', { zone: 'UTC' });
-                            if (!dt.isValid) {
-                                dt = DateTime.fromFormat(`${cleanDate} ${match.time}`, 'dd/MM/yyyy H:mm', { zone: 'UTC' });
-                            }
-                            if (dt.isValid) {
-                                const caracasDT = dt.setZone('America/Caracas');
-                                localizedTime = caracasDT.toFormat('h:mm a');
-                                localizedDate = caracasDT.toFormat('dd/MM/yyyy');
-                                localizedDay = caracasDT.toFormat('EEEE');
-                            }
-                        } else {
-                            let dt = DateTime.fromFormat(cleanDate, 'dd/MM/yyyy', { zone: 'UTC' });
-                            if (dt.isValid) {
-                                localizedDate = dt.toFormat('dd/MM/yyyy');
-                                localizedDay = dt.toFormat('EEEE');
-                            }
-                        }
-                    } catch (e) {
-                        console.warn(`Time localization failed for "${match.date} ${match.time}": ${e.message}`);
-                    }
-                }
-                return { ...match, day: localizedDay, date: localizedDate, time: localizedTime };
-            });
-
             const excelPath = path.join(dataDir, `${league.fileName}.xlsx`);
 
-            // Export localized data to Excel
-            await exportToExcel(localizedMatches, matchday.toString(), excelPath);
+            // Export data to Excel (already in America/Caracas timezone)
+            await exportToExcel(matches, matchday.toString(), excelPath);
 
             console.log(`Successfully scraped ${matches.length} matches for ${leagueKey} Matchday ${matchday}.`);
         } catch (error) {
