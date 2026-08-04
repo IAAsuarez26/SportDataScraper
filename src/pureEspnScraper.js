@@ -31,6 +31,22 @@ function deduplicateMatchday(matches) {
     return cleanMatches;
 }
 
+function deduplicateDateRange(matches) {
+    if (!matches || matches.length <= 1) return matches;
+    const seen = new Set();
+    const cleanMatches = [];
+
+    for (const m of matches) {
+        const key = `${m.date}_${m.time}_${m.homeTeam}_${m.awayTeam}`;
+        if (!seen.has(key)) {
+            seen.add(key);
+            cleanMatches.push(m);
+        }
+    }
+    return cleanMatches;
+}
+
+
 async function fetchWithRetry(url, options = {}, retries = 3, backoff = 1000) {
     for (let attempt = 1; attempt <= retries; attempt++) {
         try {
@@ -225,11 +241,11 @@ async function scrapeEspnDateRange(leagueKey, startDateStr, endDateStr) {
     matches.sort((a, b) => new Date(a._rawDate) - new Date(b._rawDate));
     matches.forEach(m => delete m._rawDate);
 
-    const clean = deduplicateMatchday(matches);
+    const clean = deduplicateDateRange(matches);
     console.log(`[Pure Engine] ✅ Successfully retrieved ${clean.length} official matches for ${leagueKey} strictly in Caracas date range (${startISO} to ${endISO}).`);
     return clean;
 }
 
-
 module.exports = { scrapePureEspnMatchday, scrapeEspnDateRange };
+
 
