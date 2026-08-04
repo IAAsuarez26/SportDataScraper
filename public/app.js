@@ -63,6 +63,39 @@ function getWeekendDates() {
     return { start: formatISO(friday), end: formatISO(monday) };
 }
 
+function getTodayTomorrowDates() {
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+    const formatISO = (d) => {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    };
+    return { start: formatISO(today), end: formatISO(tomorrow) };
+}
+
+function getThisWeekDates() {
+    const today = new Date();
+    const dayOfWeek = today.getDay();
+    const distanceToMonday = (dayOfWeek === 0 ? -6 : 1 - dayOfWeek);
+    
+    const monday = new Date(today);
+    monday.setDate(today.getDate() + distanceToMonday);
+
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+
+    const formatISO = (d) => {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    };
+    return { start: formatISO(monday), end: formatISO(sunday) };
+}
+
 function getNext7DaysDates() {
     const today = new Date();
     const nextWeek = new Date(today);
@@ -117,7 +150,15 @@ function applyDatePreset(leagueKey, presetType) {
     const endInput = document.getElementById(`end-date-${leagueKey}`);
     if (!startInput || !endInput) return;
 
-    if (presetType === 'weekend') {
+    if (presetType === 'todayTomorrow') {
+        const tt = getTodayTomorrowDates();
+        startInput.value = tt.start;
+        endInput.value = tt.end;
+    } else if (presetType === 'thisWeek') {
+        const tw = getThisWeekDates();
+        startInput.value = tw.start;
+        endInput.value = tw.end;
+    } else if (presetType === 'weekend') {
         const weekend = getWeekendDates();
         startInput.value = weekend.start;
         endInput.value = weekend.end;
@@ -127,6 +168,7 @@ function applyDatePreset(leagueKey, presetType) {
         endInput.value = week.end;
     }
 }
+
 
 // Render League Cards Grid
 function renderLeaguesGrid(leagues) {
@@ -195,11 +237,14 @@ function renderLeaguesGrid(leagues) {
             <!-- Mode Panel: Rango de Fechas -->
             <div id="panel-fechas-${league.key}" class="card-panel" style="display: none;">
                 <div class="preset-buttons">
-                    <button class="btn-preset" onclick="applyDatePreset('${league.key}', 'weekend')">
-                        <i class="fa-solid fa-calendar-week"></i> Este Fin de Semana
+                    <button class="btn-preset" onclick="applyDatePreset('${league.key}', 'todayTomorrow')">
+                        <i class="fa-solid fa-calendar-day"></i> Hoy / Mañana
                     </button>
-                    <button class="btn-preset" onclick="applyDatePreset('${league.key}', '7days')">
-                        <i class="fa-solid fa-clock"></i> 7 Días
+                    <button class="btn-preset" onclick="applyDatePreset('${league.key}', 'thisWeek')">
+                        <i class="fa-solid fa-calendar-week"></i> Esta Semana
+                    </button>
+                    <button class="btn-preset" onclick="applyDatePreset('${league.key}', 'weekend')">
+                        <i class="fa-solid fa-cloud-sun"></i> Fin de Semana
                     </button>
                 </div>
                 <div class="card-inputs">
