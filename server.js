@@ -3,7 +3,7 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs-extra');
 const config = require('./src/config');
-const { scrapeMatchday } = require('./src/scraper');
+const { scrapeMatchday, scrapeDateRange } = require('./src/scraper');
 const ExcelJS = require('exceljs');
 const { DateTime } = require('luxon');
 
@@ -31,6 +31,7 @@ let activeJob = {
     isRunning: false,
     cancelRequested: false,
     leagueKey: null,
+    mode: 'matchday',
     startMatchday: 1,
     endMatchday: 1,
     currentMatchday: 0,
@@ -49,9 +50,17 @@ function addLog(message, type = 'info') {
     console.log(`[${type.toUpperCase()}] ${message}`);
 }
 
-async function exportToExcel(data, matchday, filePath) {
+async function exportToExcel(data, sheetLabel, filePath) {
     const workbook = new ExcelJS.Workbook();
-    const sheetName = `Jornada ${matchday}`;
+    let sheetName = sheetLabel || 'Resultados';
+
+    if (!sheetName.startsWith('Fechas') && !sheetName.startsWith('Jornada') && !sheetName.startsWith('Rango')) {
+        if (/^\d+$/.test(sheetName)) {
+            sheetName = `Jornada ${sheetName}`;
+        }
+    }
+    // Clean characters prohibited in Excel sheet names: \ / ? * : [ ]
+    sheetName = sheetName.replace(/[:\\/?*\[\]]/g, '-').slice(0, 31);
 
     if (await fs.pathExists(filePath)) {
         try {
@@ -110,6 +119,7 @@ async function runExtractionTask(leagueKey, startMatchday, endMatchday, customYe
     activeJob.isRunning = true;
     activeJob.cancelRequested = false;
     activeJob.leagueKey = leagueKey;
+    activeJob.mode = 'matchday';
     activeJob.year = targetYear;
     activeJob.startMatchday = startMatchday;
     activeJob.endMatchday = endMatchday;
@@ -152,7 +162,6 @@ async function runExtractionTask(leagueKey, startMatchday, endMatchday, customYe
                     addLog(`⚠️ No matches found for Matchday ${m}. Skipping...`, 'warn');
                     failCount++;
                 } else {
-                    // Matches are already formatted in Caracas timezone (America/Caracas, UTC-4) by scrapeMatchday
                     await exportToExcel(matches, m.toString(), excelPath);
                     addLog(`✅ Successfully saved ${matches.length} matches for Matchday ${m} into ${league.fileName}.xlsx`);
                     successCount++;
@@ -162,7 +171,6 @@ async function runExtractionTask(leagueKey, startMatchday, endMatchday, customYe
                 failCount++;
             }
 
-            // Small delay between requests to avoid rate limits / connection drops
             if (m < endMatchday) {
                 await new Promise(resolve => setTimeout(resolve, 600));
             }
@@ -183,6 +191,58 @@ async function runExtractionTask(leagueKey, startMatchday, endMatchday, customYe
         activeJob.isRunning = false;
     }
 }
+
+async function runDateRangeExtractionTask(leagueKey, startDate, endDate) {
+    const league = config.leagues[leagueKey];
+    if (!league) throw new Error(`League "${leagueKey}" is not supported.`);
+
+    activeJob.isRunning = true;
+    activeJob.cancelRequested = false;
+    activeJob.leagueKey = leagueKey;
+    activeJob.mode = 'dateRange';
+    activeJob.startDate = startDate;
+    activeJob.endDate = endDate;
+    activeJob.progress = 10;
+    activeJob.logs = [];
+    activeJob.startTime = new Date();
+    activeJob.completedAt = null;
+    activeJob.error = null;
+
+    const meta = LEAGUE_METADATA[leagueKey] || { name: league.fileName };
+    addLog(`🚀 Starting date-range extraction for ${meta.flag || ''} ${meta.name} (${startDate} al ${endDate})...`);
+
+    const dataDir = config.getDataDir();
+    await fs.ensureDir(dataDir);
+    const excelPath = path.join(dataDir, `${league.fileName}.xlsx`);
+
+    try {
+        addLog(`🔍 Scraping matches from ${startDate} to ${endDate}...`);
+        const matches = await scrapeDateRange(leagueKey, startDate, endDate);
+
+        if (!matches || matches.length === 0) {
+            addLog(`⚠️ No matches found for ${meta.name} in date range ${startDate} to ${endDate}.`, 'warn');
+        } else {
+            const startClean = startDate.replace(/-/g, '.');
+            const endClean = endDate.replace(/-/g, '.');
+            const sheetLabel = `Rango ${startClean}-${endClean}`;
+            await exportToExcel(matches, sheetLabel, excelPath);
+            addLog(`✅ Successfully saved ${matches.length} matches into ${league.fileName}.xlsx (Sheet: ${sheetLabel})`, 'success');
+        }
+
+        activeJob.progress = 100;
+        activeJob.completedAt = new Date();
+        if (matches && matches.length > 0) {
+            addLog(`🎉 Extraction completed! ${matches.length} matches saved for ${meta.name}!`, 'success');
+            addLog(`📁 File generated: ${league.fileName}.xlsx (available for download below)`, 'success');
+        }
+    } catch (err) {
+        activeJob.error = err.message;
+        addLog(`❌ Date range extraction error: ${err.message}`, 'error');
+    } finally {
+        activeJob.isRunning = false;
+    }
+}
+
 
 const cheerio = require('cheerio');
 const liveStatusCache = {};
@@ -312,19 +372,25 @@ app.post('/api/scrape', (req, res) => {
         return res.status(400).json({ error: 'An extraction task is already running.' });
     }
 
-    const { leagueKey, startMatchday, endMatchday, year } = req.body;
+    const { leagueKey, mode, startMatchday, endMatchday, year, startDate, endDate } = req.body;
     if (!leagueKey || !config.leagues[leagueKey]) {
         return res.status(400).json({ error: `Invalid or missing leagueKey: "${leagueKey}"` });
     }
 
-    const start = parseInt(startMatchday) || 1;
-    const end = parseInt(endMatchday) || start;
-
-    // Trigger async job with custom year
-    runExtractionTask(leagueKey, start, end, year);
-
-    res.json({ message: 'Extraction started', leagueKey, startMatchday: start, endMatchday: end, year });
+    if (mode === 'dateRange' || (startDate && endDate)) {
+        if (!startDate || !endDate) {
+            return res.status(400).json({ error: 'Both startDate and endDate are required for date range mode.' });
+        }
+        runDateRangeExtractionTask(leagueKey, startDate, endDate);
+        return res.json({ message: 'Date range extraction started', leagueKey, startDate, endDate });
+    } else {
+        const start = parseInt(startMatchday) || 1;
+        const end = parseInt(endMatchday) || start;
+        runExtractionTask(leagueKey, start, end, year);
+        return res.json({ message: 'Matchday extraction started', leagueKey, startMatchday: start, endMatchday: end, year });
+    }
 });
+
 
 // POST /api/stop - Cancel running job
 app.post('/api/stop', (req, res) => {

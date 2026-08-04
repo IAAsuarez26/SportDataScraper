@@ -15,7 +15,14 @@ async function initApp() {
 }
 
 function setupEventListeners() {
-    document.getElementById('btn-batch-usa').addEventListener('click', runBatchUSA);
+    const btnWeekend = document.getElementById('btn-batch-weekend');
+    if (btnWeekend) {
+        btnWeekend.addEventListener('click', runBatchWeekendNWSL);
+    }
+    const btnBatchUSA = document.getElementById('btn-batch-usa');
+    if (btnBatchUSA) {
+        btnBatchUSA.addEventListener('click', runBatchUSA);
+    }
     document.getElementById('btn-refresh-all').addEventListener('click', () => {
         fetchLeagues();
         fetchFiles();
@@ -24,6 +31,49 @@ function setupEventListeners() {
     document.getElementById('btn-refresh-files').addEventListener('click', fetchFiles);
     document.getElementById('btn-stop-extraction').addEventListener('click', stopExtraction);
     document.getElementById('btn-clear-logs').addEventListener('click', clearLogs);
+}
+
+// Calculate Weekend Dates (Friday to Monday)
+function getWeekendDates() {
+    const today = new Date();
+    const dayOfWeek = today.getDay(); // 0: Sun, 1: Mon, ..., 5: Fri, 6: Sat
+    
+    let friday = new Date(today);
+    if (dayOfWeek === 5) {
+        friday = today;
+    } else if (dayOfWeek === 6) {
+        friday.setDate(today.getDate() - 1);
+    } else if (dayOfWeek === 0) {
+        friday.setDate(today.getDate() - 2);
+    } else {
+        const diffToFriday = 5 - dayOfWeek;
+        friday.setDate(today.getDate() + diffToFriday);
+    }
+
+    const monday = new Date(friday);
+    monday.setDate(friday.getDate() + 3);
+
+    const formatISO = (d) => {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    };
+
+    return { start: formatISO(friday), end: formatISO(monday) };
+}
+
+function getNext7DaysDates() {
+    const today = new Date();
+    const nextWeek = new Date(today);
+    nextWeek.setDate(today.getDate() + 7);
+    const formatISO = (d) => {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    };
+    return { start: formatISO(today), end: formatISO(nextWeek) };
 }
 
 // Fetch available leagues from API
@@ -41,12 +91,50 @@ async function fetchLeagues() {
     }
 }
 
+// Switch Card Mode Tab
+function switchLeagueTab(leagueKey, mode) {
+    const tabJornadas = document.getElementById(`tab-jornadas-${leagueKey}`);
+    const tabFechas = document.getElementById(`tab-fechas-${leagueKey}`);
+    const panelJornadas = document.getElementById(`panel-jornadas-${leagueKey}`);
+    const panelFechas = document.getElementById(`panel-fechas-${leagueKey}`);
+
+    if (mode === 'fechas') {
+        tabJornadas.classList.remove('active');
+        tabFechas.classList.add('active');
+        panelJornadas.style.display = 'none';
+        panelFechas.style.display = 'block';
+    } else {
+        tabFechas.classList.remove('active');
+        tabJornadas.classList.add('active');
+        panelFechas.style.display = 'none';
+        panelJornadas.style.display = 'block';
+    }
+}
+
+// Apply Preset Dates to Card Inputs
+function applyDatePreset(leagueKey, presetType) {
+    const startInput = document.getElementById(`start-date-${leagueKey}`);
+    const endInput = document.getElementById(`end-date-${leagueKey}`);
+    if (!startInput || !endInput) return;
+
+    if (presetType === 'weekend') {
+        const weekend = getWeekendDates();
+        startInput.value = weekend.start;
+        endInput.value = weekend.end;
+    } else if (presetType === '7days') {
+        const week = getNext7DaysDates();
+        startInput.value = week.start;
+        endInput.value = week.end;
+    }
+}
+
 // Render League Cards Grid
 function renderLeaguesGrid(leagues) {
     const grid = document.getElementById('leagues-grid');
     grid.innerHTML = '';
 
     const currentYear = new Date().getFullYear();
+    const weekend = getWeekendDates();
 
     leagues.forEach(league => {
         const card = document.createElement('div');
@@ -73,31 +161,68 @@ function renderLeaguesGrid(leagues) {
                 <p class="card-country">${league.country}</p>
             </div>
 
-            <div class="card-inputs">
-                <div class="input-group">
-                    <label>Año / Temporada</label>
-                    <input type="number" id="year-${league.key}" value="${yearVal}" min="2000" max="2030">
-                </div>
-                <div class="input-group">
-                    <label>Desde Jornada</label>
-                    <input type="number" id="start-${league.key}" value="${defaultStart}" min="1" max="${league.maxMatchdays}">
-                </div>
-                <div class="input-group">
-                    <label>Hasta Jornada</label>
-                    <input type="number" id="end-${league.key}" value="${league.defaultEnd || league.maxMatchdays}" min="1" max="${league.maxMatchdays}">
-                </div>
+            <!-- Mode Selector Tabs -->
+            <div class="card-mode-tabs">
+                <button class="mode-tab active" id="tab-jornadas-${league.key}" onclick="switchLeagueTab('${league.key}', 'jornadas')">
+                    <i class="fa-solid fa-list-ol"></i> Jornadas
+                </button>
+                <button class="mode-tab" id="tab-fechas-${league.key}" onclick="switchLeagueTab('${league.key}', 'fechas')">
+                    <i class="fa-solid fa-calendar-days"></i> Fechas
+                </button>
             </div>
 
-            <button class="card-btn" id="btn-extract-${league.key}" onclick="triggerExtraction('${league.key}')">
-                <i class="fa-solid fa-play"></i> Extraer Jornadas
-            </button>
+            <!-- Mode Panel: Jornadas -->
+            <div id="panel-jornadas-${league.key}" class="card-panel">
+                <div class="card-inputs">
+                    <div class="input-group">
+                        <label>Año / Temporada</label>
+                        <input type="number" id="year-${league.key}" value="${yearVal}" min="2000" max="2030">
+                    </div>
+                    <div class="input-group">
+                        <label>Desde Jornada</label>
+                        <input type="number" id="start-${league.key}" value="${defaultStart}" min="1" max="${league.maxMatchdays}">
+                    </div>
+                    <div class="input-group">
+                        <label>Hasta Jornada</label>
+                        <input type="number" id="end-${league.key}" value="${league.defaultEnd || league.maxMatchdays}" min="1" max="${league.maxMatchdays}">
+                    </div>
+                </div>
+                <button class="card-btn" id="btn-extract-${league.key}" onclick="triggerExtraction('${league.key}')">
+                    <i class="fa-solid fa-play"></i> Extraer Jornadas
+                </button>
+            </div>
+
+            <!-- Mode Panel: Rango de Fechas -->
+            <div id="panel-fechas-${league.key}" class="card-panel" style="display: none;">
+                <div class="preset-buttons">
+                    <button class="btn-preset" onclick="applyDatePreset('${league.key}', 'weekend')">
+                        <i class="fa-solid fa-calendar-week"></i> Este Fin de Semana
+                    </button>
+                    <button class="btn-preset" onclick="applyDatePreset('${league.key}', '7days')">
+                        <i class="fa-solid fa-clock"></i> 7 Días
+                    </button>
+                </div>
+                <div class="card-inputs">
+                    <div class="input-group full-width">
+                        <label>Desde Fecha</label>
+                        <input type="date" id="start-date-${league.key}" value="${weekend.start}">
+                    </div>
+                    <div class="input-group full-width">
+                        <label>Hasta Fecha</label>
+                        <input type="date" id="end-date-${league.key}" value="${weekend.end}">
+                    </div>
+                </div>
+                <button class="card-btn btn-emerald-action" id="btn-extract-date-${league.key}" onclick="triggerDateRangeExtraction('${league.key}')">
+                    <i class="fa-solid fa-calendar-check"></i> Extraer por Fechas
+                </button>
+            </div>
         `;
 
         grid.appendChild(card);
     });
 }
 
-// Trigger extraction for a single league
+// Trigger extraction for a single league by matchday
 async function triggerExtraction(leagueKey) {
     const yearInput = document.getElementById(`year-${leagueKey}`);
     const startInput = document.getElementById(`start-${leagueKey}`);
@@ -111,7 +236,7 @@ async function triggerExtraction(leagueKey) {
         const response = await fetch('/api/scrape', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ leagueKey, startMatchday, endMatchday, year })
+            body: JSON.stringify({ leagueKey, mode: 'matchday', startMatchday, endMatchday, year })
         });
 
         const result = await response.json();
@@ -120,11 +245,63 @@ async function triggerExtraction(leagueKey) {
             return;
         }
 
-        // Scroll terminal into view
         document.getElementById('terminal-section').scrollIntoView({ behavior: 'smooth' });
         checkStatus();
     } catch (error) {
         alert(`Error al conectar con el servidor: ${error.message}`);
+    }
+}
+
+// Trigger extraction by Date Range
+async function triggerDateRangeExtraction(leagueKey) {
+    const startInput = document.getElementById(`start-date-${leagueKey}`);
+    const endInput = document.getElementById(`end-date-${leagueKey}`);
+
+    const startDate = startInput ? startInput.value : '';
+    const endDate = endInput ? endInput.value : '';
+
+    if (!startDate || !endDate) {
+        alert('Por favor selecciona la fecha de inicio y fin.');
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/scrape', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ leagueKey, mode: 'dateRange', startDate, endDate })
+        });
+
+        const result = await response.json();
+        if (!response.ok) {
+            alert(result.error || 'Error al iniciar la extracción por fechas.');
+            return;
+        }
+
+        document.getElementById('terminal-section').scrollIntoView({ behavior: 'smooth' });
+        checkStatus();
+    } catch (error) {
+        alert(`Error al conectar con el servidor: ${error.message}`);
+    }
+}
+
+// Shortcut: Batch NWSL Weekend Extraction
+async function runBatchWeekendNWSL() {
+    const weekend = getWeekendDates();
+    try {
+        // Switch card to fechas panel if rendered
+        switchLeagueTab('nwsl', 'fechas');
+        applyDatePreset('nwsl', 'weekend');
+
+        await fetch('/api/scrape', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ leagueKey: 'nwsl', mode: 'dateRange', startDate: weekend.start, endDate: weekend.end })
+        });
+        document.getElementById('terminal-section').scrollIntoView({ behavior: 'smooth' });
+        checkStatus();
+    } catch (error) {
+        alert(`Error: ${error.message}`);
     }
 }
 
@@ -138,7 +315,7 @@ async function runBatchUSA() {
         await fetch('/api/scrape', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ leagueKey: 'mls', startMatchday: parseInt(mlsStart), endMatchday: parseInt(mlsEnd), year: mlsYear })
+            body: JSON.stringify({ leagueKey: 'mls', mode: 'matchday', startMatchday: parseInt(mlsStart), endMatchday: parseInt(mlsEnd), year: mlsYear })
         });
         document.getElementById('terminal-section').scrollIntoView({ behavior: 'smooth' });
         checkStatus();
@@ -190,7 +367,11 @@ function updateUIStatus(job) {
         wasRunning = true;
         statusPill.className = 'status-pill running';
         const leagueName = leaguesData.find(l => l.key === job.leagueKey)?.name || job.leagueKey;
-        statusText.innerText = `Extrayendo ${leagueName} (Jornada ${job.currentMatchday})...`;
+        if (job.mode === 'dateRange') {
+            statusText.innerText = `Extrayendo ${leagueName} (${job.startDate} al ${job.endDate})...`;
+        } else {
+            statusText.innerText = `Extrayendo ${leagueName} (Jornada ${job.currentMatchday})...`;
+        }
         stopBtn.disabled = false;
 
         // Disable extract buttons

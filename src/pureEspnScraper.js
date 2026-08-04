@@ -141,4 +141,70 @@ async function scrapePureEspnMatchday(leagueKey, matchdayNum, customYear) {
     return clean;
 }
 
-module.exports = { scrapePureEspnMatchday };
+async function scrapeEspnDateRange(leagueKey, startDateStr, endDateStr) {
+    const league = config.leagues[leagueKey];
+    if (!league) throw new Error(`League ${leagueKey} not found.`);
+
+    const slug = ESPN_SLUGS[leagueKey];
+    if (!slug) throw new Error(`Unknown ESPN slug for ${leagueKey}`);
+
+    // Format dates to YYYYMMDD
+    const startFormatted = startDateStr.replace(/-/g, '').trim();
+    const endFormatted = endDateStr.replace(/-/g, '').trim();
+
+    const url = `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${startFormatted}-${endFormatted}&limit=1000`;
+    console.log(`[Pure Engine] Fetching ${leagueKey} Date Range (${startFormatted} - ${endFormatted}): ${url}`);
+
+    const resp = await fetchWithRetry(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+        timeout: 15000
+    }, 3, 1000);
+
+    const data = await resp.json();
+    const events = data.events || [];
+
+    if (events.length === 0) {
+        console.warn(`[Pure Engine] No events found for ${leagueKey} in Date Range (${startDateStr} to ${endDateStr}).`);
+        return [];
+    }
+
+    // Sort chronologically
+    events.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    // Format start/end date for display
+    const startDisplay = `${startFormatted.slice(6,8)}/${startFormatted.slice(4,6)}/${startFormatted.slice(0,4)}`;
+    const endDisplay = `${endFormatted.slice(6,8)}/${endFormatted.slice(4,6)}/${endFormatted.slice(0,4)}`;
+    const matchdayLabel = `Fechas ${startDisplay} - ${endDisplay}`;
+
+    const matches = events.map(ev => {
+        const comp = ev.competitions[0];
+        const homeTeam = comp.competitors.find(c => c.homeAway === 'home')?.team?.displayName || 'N/A';
+        const awayTeam = comp.competitors.find(c => c.homeAway === 'away')?.team?.displayName || 'N/A';
+
+        const homeScore = comp.competitors.find(c => c.homeAway === 'home')?.score;
+        const awayScore = comp.competitors.find(c => c.homeAway === 'away')?.score;
+
+        const isCompleted = comp.status?.type?.completed;
+        const scoreStr = isCompleted && homeScore !== undefined && awayScore !== undefined ? `${homeScore}:${awayScore}` : '';
+
+        const utcDT = DateTime.fromISO(ev.date, { zone: 'utc' });
+        const caracasDT = utcDT.setZone('America/Caracas');
+
+        return {
+            matchday: matchdayLabel,
+            day: caracasDT.toFormat('EEEE'),
+            date: caracasDT.toFormat('dd/MM/yyyy'),
+            time: caracasDT.toFormat('h:mm a'),
+            homeTeam,
+            awayTeam,
+            score: scoreStr
+        };
+    });
+
+    const clean = deduplicateMatchday(matches);
+    console.log(`[Pure Engine] ✅ Successfully retrieved ${clean.length} official matches for ${leagueKey} in date range (${startDateStr} to ${endDateStr}).`);
+    return clean;
+}
+
+module.exports = { scrapePureEspnMatchday, scrapeEspnDateRange };
+

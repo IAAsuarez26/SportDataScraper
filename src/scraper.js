@@ -1,4 +1,4 @@
-const { scrapePureEspnMatchday } = require('./pureEspnScraper');
+const { scrapePureEspnMatchday, scrapeEspnDateRange } = require('./pureEspnScraper');
 const { scrapeHybridMatchday } = require('./hybridScraper');
 
 async function scrapeMatchday(leagueKey, matchday, customYear) {
@@ -14,4 +14,9 @@ async function scrapeMatchday(leagueKey, matchday, customYear) {
     }
 }
 
-module.exports = { scrapeMatchday };
+async function scrapeDateRange(leagueKey, startDateStr, endDateStr) {
+    return await scrapeEspnDateRange(leagueKey, startDateStr, endDateStr);
+}
+
+module.exports = { scrapeMatchday, scrapeDateRange };
+
