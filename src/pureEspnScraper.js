@@ -14,6 +14,73 @@ const ESPN_SLUGS = {
     champions: 'uefa.champions'
 };
 
+const ESPN_HOSTS = [
+    'https://site.api.espn.com',
+    'https://site.web.api.espn.com'
+];
+
+const USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36 Edg/123.0.0.0'
+];
+
+function getBrowserHeaders(index = 0) {
+    const ua = USER_AGENTS[index % USER_AGENTS.length];
+    return {
+        'User-Agent': ua,
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'es-ES,es;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Referer': 'https://www.espn.com/',
+        'Origin': 'https://www.espn.com',
+        'Sec-Ch-Ua': '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"Windows"',
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'same-site'
+    };
+}
+
+async function fetchEspnWithFallback(endpointPath, retriesPerHost = 2, backoff = 800) {
+    let lastError = null;
+
+    for (let hostIdx = 0; hostIdx < ESPN_HOSTS.length; hostIdx++) {
+        const host = ESPN_HOSTS[hostIdx];
+        const url = `${host}${endpointPath}`;
+
+        for (let attempt = 1; attempt <= retriesPerHost; attempt++) {
+            try {
+                const headers = getBrowserHeaders(hostIdx * 3 + attempt);
+                const resp = await fetch(url, {
+                    headers,
+                    signal: AbortSignal.timeout(12000)
+                });
+
+                if (resp.ok) {
+                    return await resp.json();
+                }
+
+                console.warn(`[ESPN Engine] Host ${host} returned HTTP ${resp.status} (attempt ${attempt}/${retriesPerHost}).`);
+                lastError = new Error(`HTTP ${resp.status} fetching ${url}`);
+
+                // If 403 or 429, don't repeat on the exact same blocked host immediately; try next host
+                if (resp.status === 403 || resp.status === 429) {
+                    break;
+                }
+            } catch (err) {
+                console.warn(`[ESPN Engine] Host ${host} failed: ${err.message} (attempt ${attempt}/${retriesPerHost}).`);
+                lastError = err;
+            }
+            await new Promise(r => setTimeout(r, backoff * attempt));
+        }
+    }
+
+    throw lastError || new Error(`Failed to fetch from all ESPN endpoints: ${endpointPath}`);
+}
+
 function deduplicateMatchday(matches) {
     if (!matches || matches.length <= 1) return matches;
     const seenTeams = new Set();
@@ -46,27 +113,6 @@ function deduplicateDateRange(matches) {
     return cleanMatches;
 }
 
-
-async function fetchWithRetry(url, options = {}, retries = 3, backoff = 1000) {
-    for (let attempt = 1; attempt <= retries; attempt++) {
-        try {
-            const resp = await fetch(url, {
-                ...options,
-                signal: AbortSignal.timeout(options.timeout || 15000)
-            });
-            if (resp.ok) return resp;
-            if (attempt === retries) {
-                throw new Error(`HTTP ${resp.status} fetching ${url}`);
-            }
-            console.warn(`[Pure Engine] Attempt ${attempt}/${retries} returned HTTP ${resp.status} for ${url}. Retrying in ${backoff * attempt}ms...`);
-        } catch (err) {
-            if (attempt === retries) throw err;
-            console.warn(`[Pure Engine] Attempt ${attempt}/${retries} failed for ${url} (${err.message}). Retrying in ${backoff * attempt}ms...`);
-        }
-        await new Promise(r => setTimeout(r, backoff * attempt));
-    }
-}
-
 async function scrapePureEspnMatchday(leagueKey, matchdayNum, customYear) {
     const league = config.leagues[leagueKey];
     if (!league) throw new Error(`League ${leagueKey} not found.`);
@@ -78,21 +124,16 @@ async function scrapePureEspnMatchday(leagueKey, matchdayNum, customYear) {
     const mapKey = `${leagueKey}_${targetYear}`;
     const dateMap = LEAGUE_DATE_MAPS[mapKey] ? LEAGUE_DATE_MAPS[mapKey][matchdayNum] : null;
 
-    let url = '';
+    let endpoint = '';
     if (dateMap) {
-        url = `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${dateMap.start}-${dateMap.end}&limit=100`;
-        console.log(`[Pure Engine] Fetching ${leagueKey} Matchday ${matchdayNum} via Date Map (${dateMap.start}-${dateMap.end}): ${url}`);
+        endpoint = `/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${dateMap.start}-${dateMap.end}&limit=100`;
+        console.log(`[Pure Engine] Fetching ${leagueKey} Matchday ${matchdayNum} via Date Map (${dateMap.start}-${dateMap.end}): ${endpoint}`);
     } else {
-        url = `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${targetYear}&limit=1000`;
-        console.log(`[Pure Engine] Fetching ${leagueKey} full schedule for Year ${targetYear}: ${url}`);
+        endpoint = `/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${targetYear}&limit=1000`;
+        console.log(`[Pure Engine] Fetching ${leagueKey} full schedule for Year ${targetYear}: ${endpoint}`);
     }
 
-    const resp = await fetchWithRetry(url, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-        timeout: 15000
-    }, 3, 1000);
-
-    const data = await resp.json();
+    const data = await fetchEspnWithFallback(endpoint);
     const events = data.events || [];
 
     if (events.length === 0) throw new Error(`No events found for ${leagueKey} Matchday ${matchdayNum} (${targetYear})`);
@@ -176,20 +217,44 @@ async function scrapeEspnDateRange(leagueKey, startDateStr, endDateStr) {
     const startDT = parseCleanDate(startDateStr);
     const endDT = parseCleanDate(endDateStr);
 
+    if (!startDT.isValid || !endDT.isValid) {
+        throw new Error(`Invalid date range format: ${startDateStr} to ${endDateStr}`);
+    }
+
     // Query ESPN with a 1-day safety margin on both ends to account for UTC timezone offsets
     const searchStart = startDT.minus({ days: 1 }).toFormat('yyyyMMdd');
     const searchEnd = endDT.plus({ days: 1 }).toFormat('yyyyMMdd');
 
-    const url = `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${searchStart}-${searchEnd}&limit=1000`;
-    console.log(`[Pure Engine] Fetching ${leagueKey} Date Range query (${searchStart} - ${searchEnd}): ${url}`);
+    const endpoint = `/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${searchStart}-${searchEnd}&limit=1000`;
+    console.log(`[Pure Engine] Fetching ${leagueKey} Date Range query (${searchStart} - ${searchEnd}): ${endpoint}`);
 
-    const resp = await fetchWithRetry(url, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-        timeout: 15000
-    }, 3, 1000);
+    let events = [];
 
-    const data = await resp.json();
-    const events = data.events || [];
+    try {
+        const data = await fetchEspnWithFallback(endpoint);
+        events = data.events || [];
+    } catch (rangeErr) {
+        console.warn(`[Pure Engine] Multi-day range query failed (${rangeErr.message}). Falling back to day-by-day queries...`);
+        // Fallback: Query day-by-day
+        const dayEvents = [];
+        let curr = startDT.minus({ days: 1 });
+        const last = endDT.plus({ days: 1 });
+
+        while (curr <= last) {
+            const dayStr = curr.toFormat('yyyyMMdd');
+            const dayEndpoint = `/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${dayStr}&limit=100`;
+            try {
+                const dayData = await fetchEspnWithFallback(dayEndpoint, 1, 400);
+                if (dayData && dayData.events && dayData.events.length > 0) {
+                    dayEvents.push(...dayData.events);
+                }
+            } catch (dayErr) {
+                console.warn(`[Pure Engine] Day query failed for ${dayStr}: ${dayErr.message}`);
+            }
+            curr = curr.plus({ days: 1 });
+        }
+        events = dayEvents;
+    }
 
     if (events.length === 0) {
         console.warn(`[Pure Engine] No events found for ${leagueKey} in Date Range (${startDateStr} to ${endDateStr}).`);
@@ -246,6 +311,4 @@ async function scrapeEspnDateRange(leagueKey, startDateStr, endDateStr) {
     return clean;
 }
 
-module.exports = { scrapePureEspnMatchday, scrapeEspnDateRange };
-
-
+module.exports = { scrapePureEspnMatchday, scrapeEspnDateRange, fetchEspnWithFallback, getBrowserHeaders };

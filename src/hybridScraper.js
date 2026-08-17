@@ -2,6 +2,7 @@ const path = require('path');
 const cheerio = require('cheerio');
 const { DateTime } = require(path.join(process.cwd(), 'node_modules/luxon'));
 const config = require('./config');
+const { fetchEspnWithFallback, getBrowserHeaders } = require('./pureEspnScraper');
 
 const ESPN_SLUGS = {
     mls: 'usa.1',
@@ -12,11 +13,6 @@ const ESPN_SLUGS = {
     la_liga: 'esp.1',
     france: 'fra.1',
     champions: 'uefa.champions'
-};
-
-const BROWSER_HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7'
 };
 
 function deduplicateMatchday(matches) {
@@ -57,13 +53,14 @@ async function getMatchdayDateRange(league, matchday, targetYear) {
         urlsToTry.push(`${baseUrl}/${compName}/spieltag/${compType}/${compCode}/plus/?saison_id=${yearInt - 2}&spieltag=${matchday}`);
     }
 
-    for (const url of urlsToTry) {
+    for (let idx = 0; idx < urlsToTry.length; idx++) {
+        const url = urlsToTry[idx];
         try {
             console.log(`[Hybrid Engine] Scanning Matchday ${matchday} Date Range from: ${url}`);
             const resp = await fetch(url, {
                 redirect: 'follow',
-                signal: AbortSignal.timeout(4000),
-                headers: BROWSER_HEADERS
+                signal: AbortSignal.timeout(5000),
+                headers: getBrowserHeaders(idx)
             });
 
             if (!resp.ok) continue;
@@ -126,51 +123,42 @@ async function scrapeHybridMatchday(leagueKey, matchday, customYear) {
 
     if (dateRange && slug) {
         // Step 2: Fetch official match data from ESPN scoreboards for this exact date range
-        const url = `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${dateRange.startStr}-${dateRange.endStr}&limit=100`;
-        console.log(`[Hybrid Engine] Querying ESPN Official Endpoint for ${leagueKey} Matchday ${matchday}: ${url}`);
+        const endpoint = `/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${dateRange.startStr}-${dateRange.endStr}&limit=100`;
+        console.log(`[Hybrid Engine] Querying ESPN Official Endpoint for ${leagueKey} Matchday ${matchday}: ${endpoint}`);
 
         try {
-            const resp = await fetch(url, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                },
-                signal: AbortSignal.timeout(6000)
-            });
+            const data = await fetchEspnWithFallback(endpoint);
+            const events = data.events || [];
 
-            if (resp.ok) {
-                const data = await resp.json();
-                const events = data.events || [];
+            if (events.length > 0) {
+                const matches = events.map(ev => {
+                    const comp = ev.competitions[0];
+                    const homeTeam = comp.competitors.find(c => c.homeAway === 'home')?.team?.displayName || 'N/A';
+                    const awayTeam = comp.competitors.find(c => c.homeAway === 'away')?.team?.displayName || 'N/A';
 
-                if (events.length > 0) {
-                    const matches = events.map(ev => {
-                        const comp = ev.competitions[0];
-                        const homeTeam = comp.competitors.find(c => c.homeAway === 'home')?.team?.displayName || 'N/A';
-                        const awayTeam = comp.competitors.find(c => c.homeAway === 'away')?.team?.displayName || 'N/A';
+                    const homeScore = comp.competitors.find(c => c.homeAway === 'home')?.score;
+                    const awayScore = comp.competitors.find(c => c.homeAway === 'away')?.score;
 
-                        const homeScore = comp.competitors.find(c => c.homeAway === 'home')?.score;
-                        const awayScore = comp.competitors.find(c => c.homeAway === 'away')?.score;
+                    const isCompleted = comp.status?.type?.completed;
+                    const scoreStr = isCompleted && homeScore !== undefined && awayScore !== undefined ? `${homeScore}:${awayScore}` : '';
 
-                        const isCompleted = comp.status?.type?.completed;
-                        const scoreStr = isCompleted && homeScore !== undefined && awayScore !== undefined ? `${homeScore}:${awayScore}` : '';
+                    const utcDT = DateTime.fromISO(ev.date, { zone: 'utc' });
+                    const caracasDT = utcDT.setZone('America/Caracas');
 
-                        const utcDT = DateTime.fromISO(ev.date, { zone: 'utc' });
-                        const caracasDT = utcDT.setZone('America/Caracas');
+                    return {
+                        matchday: `Jornada ${matchday}`,
+                        day: caracasDT.toFormat('EEEE'),
+                        date: caracasDT.toFormat('dd/MM/yyyy'),
+                        time: caracasDT.toFormat('h:mm a'),
+                        homeTeam,
+                        awayTeam,
+                        score: scoreStr
+                    };
+                });
 
-                        return {
-                            matchday: `Jornada ${matchday}`,
-                            day: caracasDT.toFormat('EEEE'),
-                            date: caracasDT.toFormat('dd/MM/yyyy'),
-                            time: caracasDT.toFormat('h:mm a'),
-                            homeTeam,
-                            awayTeam,
-                            score: scoreStr
-                        };
-                    });
-
-                    const cleanMatches = deduplicateMatchday(matches);
-                    console.log(`[Hybrid Engine] ✅ Successfully retrieved ${cleanMatches.length} official matches for ${leagueKey} Matchday ${matchday}.`);
-                    return cleanMatches;
-                }
+                const cleanMatches = deduplicateMatchday(matches);
+                console.log(`[Hybrid Engine] ✅ Successfully retrieved ${cleanMatches.length} official matches for ${leagueKey} Matchday ${matchday}.`);
+                return cleanMatches;
             }
         } catch (e) {
             console.warn(`[Hybrid Engine] ESPN API fetch failed: ${e.message}`);

@@ -1,6 +1,7 @@
 const path = require('path');
 const { DateTime } = require(path.join(process.cwd(), 'node_modules/luxon'));
 const config = require('./config');
+const { fetchEspnWithFallback } = require('./pureEspnScraper');
 
 const ESPN_SLUGS = {
     mls: 'usa.1',
@@ -23,19 +24,11 @@ async function fetchEspnMatchday(leagueKey, matchdayNum, targetYear) {
     let matchdayRounds = espnCache[cacheKey];
 
     if (!matchdayRounds) {
-        const url = `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${targetYear}&limit=1000`;
+        const endpoint = `/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${targetYear}&limit=1000`;
         console.log(`[ESPN Engine] Fetching full schedule for ${leagueKey} (${slug}) Year ${targetYear}...`);
 
         try {
-            const resp = await fetch(url, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                },
-                signal: AbortSignal.timeout(8000)
-            });
-
-            if (!resp.ok) return null;
-            const data = await resp.json();
+            const data = await fetchEspnWithFallback(endpoint);
             const events = data.events || [];
 
             if (events.length === 0) return null;
