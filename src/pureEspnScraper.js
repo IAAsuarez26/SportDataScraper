@@ -270,7 +270,7 @@ async function scrapeEspnDateRange(leagueKey, startDateStr, endDateStr) {
     const startISO = startDT.toFormat('yyyy-MM-dd');
     const endISO = endDT.toFormat('yyyy-MM-dd');
 
-    const matches = [];
+    const rawMatches = [];
 
     events.forEach(ev => {
         const comp = ev.competitions[0];
@@ -289,8 +289,8 @@ async function scrapeEspnDateRange(leagueKey, startDateStr, endDateStr) {
 
         // Include match strictly if its Caracas date falls within requested [startISO, endISO]
         if (matchCaracasISO >= startISO && matchCaracasISO <= endISO) {
-            matches.push({
-                matchday: matchdayLabel,
+            rawMatches.push({
+                matchday: '',
                 day: caracasDT.toFormat('EEEE'),
                 date: caracasDT.toFormat('dd/MM/yyyy'),
                 time: caracasDT.toFormat('h:mm a'),
@@ -303,12 +303,97 @@ async function scrapeEspnDateRange(leagueKey, startDateStr, endDateStr) {
     });
 
     // Sort chronologically
-    matches.sort((a, b) => new Date(a._rawDate) - new Date(b._rawDate));
-    matches.forEach(m => delete m._rawDate);
+    rawMatches.sort((a, b) => new Date(a._rawDate) - new Date(b._rawDate));
 
-    const clean = deduplicateDateRange(matches);
+    const clean = deduplicateDateRange(rawMatches);
     console.log(`[Pure Engine] ✅ Successfully retrieved ${clean.length} official matches for ${leagueKey} strictly in Caracas date range (${startISO} to ${endISO}).`);
-    return clean;
+
+    // Group matches into weekly matchdays / jornadas
+    const groups = groupMatchesByWeeklyRound(clean);
+    console.log(`[Pure Engine] 📊 Grouped into ${groups.length} weekly jornada(s).`);
+    return groups;
 }
 
-module.exports = { scrapePureEspnMatchday, scrapeEspnDateRange, fetchEspnWithFallback, getBrowserHeaders };
+function groupMatchesByWeeklyRound(matches) {
+    if (!matches || matches.length === 0) return [];
+
+    // Ensure sorted chronologically
+    const sorted = [...matches].sort((a, b) => new Date(a._rawDate || a.rawDate) - new Date(b._rawDate || b.rawDate));
+
+    const groups = [];
+    let currentMatches = [];
+    let seenTeams = new Set();
+    let lastDate = null;
+
+    sorted.forEach(m => {
+        const mDate = DateTime.fromFormat(m.date, 'dd/MM/yyyy', { zone: 'America/Caracas' });
+        let startNewGroup = false;
+
+        if (currentMatches.length > 0) {
+            const daysDiff = mDate.diff(lastDate, 'days').days;
+            // A new weekly matchday starts if:
+            // 1. Gap between match dates is > 2 days (e.g. Monday to Friday is 4 days)
+            // 2. Or a team in this match has already played in the current round
+            if (daysDiff > 2 || seenTeams.has(m.homeTeam) || seenTeams.has(m.awayTeam)) {
+                startNewGroup = true;
+            }
+        }
+
+        if (startNewGroup) {
+            groups.push(currentMatches);
+            currentMatches = [];
+            seenTeams = new Set();
+        }
+
+        currentMatches.push(m);
+        seenTeams.add(m.homeTeam);
+        seenTeams.add(m.awayTeam);
+        lastDate = mDate;
+    });
+
+    if (currentMatches.length > 0) {
+        groups.push(currentMatches);
+    }
+
+    return groups.map(group => {
+        const firstMatch = group[0];
+        const lastMatch = group[group.length - 1];
+        const startDateStr = firstMatch.date; // dd/MM/yyyy
+        const endDateStr = lastMatch.date;     // dd/MM/yyyy
+
+        let matchdayLabel = '';
+        let sheetLabel = '';
+
+        if (startDateStr === endDateStr) {
+            matchdayLabel = `Fecha ${startDateStr}`;
+            sheetLabel = startDateStr.replace(/\//g, '.'); // 21.08.2026
+        } else {
+            matchdayLabel = `Fechas ${startDateStr} - ${endDateStr}`;
+            sheetLabel = `${startDateStr.replace(/\//g, '.')} - ${endDateStr.replace(/\//g, '.')}`; // 21.08.2026 - 24.08.2026
+        }
+
+        // Apply specific matchday label to each match in this weekly group
+        const formattedMatches = group.map(m => {
+            const copy = { ...m, matchday: matchdayLabel };
+            delete copy._rawDate;
+            delete copy.rawDate;
+            return copy;
+        });
+
+        return {
+            sheetLabel,
+            matchdayLabel,
+            startDate: startDateStr,
+            endDate: endDateStr,
+            matches: formattedMatches
+        };
+    });
+}
+
+module.exports = {
+    scrapePureEspnMatchday,
+    scrapeEspnDateRange,
+    groupMatchesByWeeklyRound,
+    fetchEspnWithFallback,
+    getBrowserHeaders
+};

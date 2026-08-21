@@ -77,7 +77,7 @@ async function exportToExcel(data, sheetLabel, filePath) {
     const worksheet = workbook.addWorksheet(sheetName);
 
     worksheet.columns = [
-        { header: 'Matchday', key: 'matchday', width: 25 },
+        { header: 'Matchday', key: 'matchday', width: 32 },
         { header: 'Day', key: 'day', width: 15 },
         { header: 'Date', key: 'date', width: 20 },
         { header: 'Time (Caracas)', key: 'time', width: 15 },
@@ -106,6 +106,67 @@ async function exportToExcel(data, sheetLabel, filePath) {
             score: displayScore
         });
     });
+
+    await workbook.xlsx.writeFile(filePath);
+}
+
+async function exportGroupsToExcel(groups, filePath) {
+    const workbook = new ExcelJS.Workbook();
+
+    if (await fs.pathExists(filePath)) {
+        try {
+            await workbook.xlsx.readFile(filePath);
+        } catch (error) {
+            addLog(`Could not read existing Excel file: ${error.message}. Creating new workbook.`, 'warn');
+        }
+    }
+
+    // Clean up any legacy single-sheet "Rango ..." worksheets if present
+    const legacySheets = workbook.worksheets.filter(ws => ws.name.startsWith('Rango '));
+    legacySheets.forEach(ws => {
+        workbook.removeWorksheet(ws.id);
+    });
+
+    for (const group of groups) {
+        let sheetName = (group.sheetLabel || 'Resultados').replace(/[:\\/?*\[\]]/g, '-').slice(0, 31);
+
+        const existingSheet = workbook.getWorksheet(sheetName);
+        if (existingSheet) {
+            workbook.removeWorksheet(existingSheet.id);
+        }
+
+        const worksheet = workbook.addWorksheet(sheetName);
+
+        worksheet.columns = [
+            { header: 'Matchday', key: 'matchday', width: 32 },
+            { header: 'Day', key: 'day', width: 15 },
+            { header: 'Date', key: 'date', width: 20 },
+            { header: 'Time (Caracas)', key: 'time', width: 15 },
+            { header: 'Home Team', key: 'homeTeam', width: 25 },
+            { header: 'Away Team', key: 'awayTeam', width: 25 },
+            { header: 'Score', key: 'score', width: 15 }
+        ];
+
+        worksheet.getRow(1).font = { bold: true };
+        worksheet.getRow(1).fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFD3D3D3' }
+        };
+
+        group.matches.forEach(item => {
+            let displayScore = '';
+            if (item.score && item.score !== 'TBD' && item.score !== '-:-') {
+                if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(item.score)) {
+                    displayScore = item.score;
+                }
+            }
+            worksheet.addRow({
+                ...item,
+                score: displayScore
+            });
+        });
+    }
 
     await workbook.xlsx.writeFile(filePath);
 }
@@ -217,22 +278,28 @@ async function runDateRangeExtractionTask(leagueKey, startDate, endDate) {
 
     try {
         addLog(`🔍 Scraping matches from ${startDate} to ${endDate}...`);
-        const matches = await scrapeDateRange(leagueKey, startDate, endDate);
+        const groups = await scrapeDateRange(leagueKey, startDate, endDate);
 
-        if (!matches || matches.length === 0) {
+        if (!groups || groups.length === 0) {
             addLog(`⚠️ No matches found for ${meta.name} in date range ${startDate} to ${endDate}.`, 'warn');
         } else {
-            const startClean = startDate.replace(/-/g, '.');
-            const endClean = endDate.replace(/-/g, '.');
-            const sheetLabel = `Rango ${startClean}-${endClean}`;
-            await exportToExcel(matches, sheetLabel, excelPath);
-            addLog(`✅ Successfully saved ${matches.length} matches into ${league.fileName}.xlsx (Sheet: ${sheetLabel})`, 'success');
+            const totalMatches = groups.reduce((acc, g) => acc + g.matches.length, 0);
+            addLog(`📋 Discovered ${groups.length} weekly matchday group(s) with ${totalMatches} total match(es).`);
+            
+            await exportGroupsToExcel(groups, excelPath);
+
+            groups.forEach((g, idx) => {
+                addLog(`  📅 Sheet ${idx + 1}: "${g.sheetLabel}" (${g.matches.length} matches | ${g.matchdayLabel})`);
+            });
+
+            addLog(`✅ Successfully saved ${totalMatches} matches in ${groups.length} weekly sheet(s) into ${league.fileName}.xlsx`, 'success');
         }
 
         activeJob.progress = 100;
         activeJob.completedAt = new Date();
-        if (matches && matches.length > 0) {
-            addLog(`🎉 Extraction completed! ${matches.length} matches saved for ${meta.name}!`, 'success');
+        if (groups && groups.length > 0) {
+            const totalMatches = groups.reduce((acc, g) => acc + g.matches.length, 0);
+            addLog(`🎉 Extraction completed! ${totalMatches} matches saved across ${groups.length} weekly sheet(s) for ${meta.name}!`, 'success');
             addLog(`📁 File generated: ${league.fileName}.xlsx (available for download below)`, 'success');
         }
     } catch (err) {
